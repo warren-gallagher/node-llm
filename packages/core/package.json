@@ -1,0 +1,26 @@
+{
+  "name": "@node-llm/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend-agnostic LLM building blocks: tokenizer, data, model, training.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokenizer": "./src/tokenizer/bpe.ts",
+    "./data": "./src/data/index.ts",
+    "./model": "./src/model/index.ts",
+    "./train": "./src/train/trainer.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs-core": "^4.22.0"
+  },
+  "devDependencies": {
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
+    "gpt-tokenizer": "^3.4.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "node-llm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Building an LLM from scratch in Node.js/TypeScript, following Sebastian Raschka's 'Build a Large Language Model (From Scratch)'.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "ch02": "pnpm --filter @node-llm/chapters ch02",
+    "ch03": "pnpm --filter @node-llm/chapters ch03",
+    "ch04": "pnpm --filter @node-llm/chapters ch04",
+    "ch05:train": "pnpm --filter @node-llm/chapters ch05:train",
+    "playground": "pnpm --filter @node-llm/playground dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.8",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

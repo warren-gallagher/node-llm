@@ -1,0 +1,28 @@
+{
+  "name": "@node-llm/chapters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-chapter runnable Node entry points (uses the tfjs-node backend).",
+  "scripts": {
+    "ch02:1": "tsx src/ch02-tokenizer/01-word-tokenizer.ts",
+    "ch02:2": "tsx src/ch02-tokenizer/02-byte-pair-encoding.ts",
+    "ch02:3": "tsx src/ch02-tokenizer/03-data-sampling.ts",
+    "ch02:4": "tsx src/ch02-tokenizer/04-dataset-dataloader.ts",
+    "ch02:5": "tsx src/ch02-tokenizer/05-embedding.ts",
+    "ch02:6": "tsx src/ch02-tokenizer/06-positional-encoding.ts",
+    "ch03:1": "tsx src/ch03-attention/01-simplified-attention.ts",
+    "ch03:2": "tsx src/ch03-attention/02-self-attention.ts",
+    "ch03:3": "tsx src/ch03-attention/03-multi-head-attention.ts",
+    "ch03": "tsx src/ch03-attention/main.ts",
+    "ch04": "tsx src/ch04-gpt/main.ts",
+    "ch05:train": "tsx src/ch05-training/train.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@node-llm/core": "workspace:*",
+    "@tensorflow/tfjs-node": "^4.22.0",
+    "gpt-tokenizer": "^3.4.0"
+  }
+}

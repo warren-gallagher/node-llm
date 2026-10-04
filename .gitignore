@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Build / framework output
+.astro/
+.vite/
+.turbo/
+
+# Trained artifacts / checkpoints
+checkpoints/
+*.bin
+*.safetensors
+
+# Local data corpora (keep small samples in fixtures/ instead)
+data/

@@ -1,0 +1,23 @@
+{
+  "name": "@node-llm/playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive in-browser demos (WebGPU) for the LLM building blocks, embeddable in the docs.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@node-llm/core": "workspace:*",
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
+    "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
+    "@tensorflow/tfjs-core": "^4.22.0"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.40",
+    "vite": "^6.0.0"
+  }
+}
