@@ -1,11 +1,18 @@
-import type * as tf from "@tensorflow/tfjs-core";
+import * as tf from "@tensorflow/tfjs-core";
 import { MultiHeadAttention } from "./attention";
+import { FeedForward, LayerNorm } from "./layers";
 
 /**
- * Chapter 4: a single transformer block (LayerNorm -> attention -> residual ->
- * LayerNorm -> feed-forward -> residual).
+ * Chapter 4, lesson 2: a single transformer block.
  *
- * TODO(ch04): implement LayerNorm, GELU feed-forward, and residual connections.
+ * Two sub-layers, each wrapped as "normalize, transform, add back" (pre-LayerNorm, as in
+ * GPT-2):
+ *   x = x + dropout(attention(norm1(x)))
+ *   x = x + dropout(feedForward(norm2(x)))
+ *
+ * The `x + ...` shortcut (residual) connections give gradients a direct path back through
+ * a deep stack of blocks. Input and output are both `[batch, seqLen, embDim]`, so blocks
+ * can be stacked any number of times.
  */
 export interface TransformerBlockConfig {
   embDim: number;
@@ -16,9 +23,17 @@ export interface TransformerBlockConfig {
 }
 
 export class TransformerBlock {
+  readonly weights: tf.Variable[];
+
+  private readonly norm1: LayerNorm;
   private readonly attention: MultiHeadAttention;
+  private readonly norm2: LayerNorm;
+  private readonly feedForward: FeedForward;
+  private readonly dropout: number;
 
   constructor(config: TransformerBlockConfig) {
+    this.dropout = config.dropout ?? 0;
+    this.norm1 = new LayerNorm(config.embDim);
     this.attention = new MultiHeadAttention({
       dIn: config.embDim,
       dOut: config.embDim,
@@ -27,11 +42,37 @@ export class TransformerBlock {
       dropout: config.dropout,
       qkvBias: config.qkvBias,
     });
+    this.norm2 = new LayerNorm(config.embDim);
+    this.feedForward = new FeedForward(config.embDim);
+
+    this.weights = [
+      ...this.norm1.weights,
+      ...this.attention.weights,
+      ...this.norm2.weights,
+      ...this.feedForward.weights,
+    ];
   }
 
-  forward(_x: tf.Tensor3D): tf.Tensor3D {
-    // Uses this.attention once implemented (ch04).
-    void this.attention;
-    throw new Error("TODO(ch04): implement transformer block forward pass");
+  /** x: [batch, seqLen, embDim] -> [batch, seqLen, embDim] */
+  forward(x: tf.Tensor3D, training = false): tf.Tensor3D {
+    return tf.tidy(() => {
+      const drop = (t: tf.Tensor3D) =>
+        training && this.dropout > 0 ? tf.dropout(t, this.dropout) : t;
+
+      // Attention sub-layer: tokens exchange information.
+      const attended = drop(this.attention.forward(this.norm1.forward(x), training));
+      const afterAttention = tf.add(x, attended) as tf.Tensor3D;
+
+      // Feed-forward sub-layer: each token is processed on its own.
+      const fed = drop(this.feedForward.forward(this.norm2.forward(afterAttention)));
+      return tf.add(afterAttention, fed) as tf.Tensor3D;
+    });
+  }
+
+  dispose(): void {
+    this.norm1.dispose();
+    this.attention.dispose();
+    this.norm2.dispose();
+    this.feedForward.dispose();
   }
 }

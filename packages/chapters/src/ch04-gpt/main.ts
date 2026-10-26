@@ -4,8 +4,7 @@ import * as tf from "@tensorflow/tfjs-node";
 /**
  * Chapter 4: assemble the full GPT and run a forward pass.
  *
- * TODO(ch04): once GptModel.forward is implemented, print logits shape
- * (expect [batch, seqLen, vocabSize]).
+ * A small configuration so it runs in a moment; `03-gpt-model.ts` builds the full 124M one.
  */
 function main(): void {
   // A small config for quick local runs (override the 124M defaults).
@@ -19,7 +18,11 @@ function main(): void {
 
   const tokenIds = tf.tensor2d([[1, 2, 3, 4]], [1, 4], "int32");
   const logits = model.forward(tokenIds);
-  console.log("logits shape:", logits.shape);
+  console.log("logits shape:", logits.shape); // [batch, seqLen, vocabSize]
+  console.log("parameters:", model.numParameters().toLocaleString());
+
+  tf.dispose([tokenIds, logits]);
+  model.dispose();
 }
 
 main();
