@@ -6,6 +6,7 @@ Companion code for the book [*Building an LLM in NodeJS*](https://book.humanexpe
 
 - `main` tracks the upstream repo. `fix` is the base of this fork: it holds the changes needed to install the repo and get the tests passing.
 - Start new work on a branch off `fix`, not `main` (for example, `docs/reader-notes`).
+- The branches form a chain: `fix` → `docs/reader-notes` → `companion`. When an earlier branch gets new commits, rebase the later ones onto it.
 
 ## Commands
 
@@ -33,3 +34,12 @@ How to write entries:
 - Mark facts about real models or tools that will change over time with "(as of YYYY-MM)". Only include numbers you are confident about, and say so when a value isn't published.
 - When a diagram would make an explanation clearer (data flow, tensor shapes, how layers connect), embed it as a fenced `mermaid` code block, which GitHub renders. Don't add image files.
 - Keep the notes separate from the upstream code: don't edit chapter files to add commentary. That keeps the notes easy to contribute upstream as one self-contained file.
+
+## Companion chapters (`companion` branch)
+
+The book publishes chapters as they're written, and the repo's code for unpublished chapters is `TODO` stubs. The `companion` branch fills those in with unofficial code and text ([docs/companion/](docs/companion/README.md)). Claude writes each chapter; the user reviews it before the next one starts.
+
+- Implement the author's stubs in place and keep their interfaces, so the result can be compared with the author's version or dropped. Follow the lesson outline the book's site lists for the chapter, with one lesson script per lesson.
+- Write the text in its own words, marked unofficial. Don't imitate the author's voice or reproduce Raschka's text; link to the book where it covers a topic.
+- Check results against the figures in Raschka's book (parameter counts, shapes, sizes), and add tests for each component.
+- Keep each chapter in its own commits: code and tests first, then the text.
