@@ -1,6 +1,6 @@
 import { DataLoader, GPT_CONFIG_124M, GptModel, LlmDataset, trainModel } from "@node-llm/core";
 import "@tensorflow/tfjs-node";
-import { encode as gptEncode } from "gpt-tokenizer";
+import { encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
 
 /**
  * Chapter 5: end-to-end training loop on a tiny corpus.

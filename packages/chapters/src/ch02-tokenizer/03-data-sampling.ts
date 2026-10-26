@@ -1,4 +1,4 @@
-import { decode as gptDecode, encode as gptEncode } from "gpt-tokenizer";
+import { decode as gptDecode, encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
 
 /**
  * Chapter 2, Lesson 3: data sampling with a sliding window.

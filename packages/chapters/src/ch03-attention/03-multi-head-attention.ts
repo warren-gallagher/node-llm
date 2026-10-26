@@ -1,6 +1,6 @@
 import * as tf from "@tensorflow/tfjs-node";
 import { DataLoader, LlmDataset, MultiAttentionStacking } from "@node-llm/core";
-import { encode as gptEncode } from "gpt-tokenizer";
+import { encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
 
 /**
  * Chapter 3, Lesson 4: multi-head attention by stacking.

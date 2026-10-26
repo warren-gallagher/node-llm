@@ -1,6 +1,6 @@
 import { DataLoader, LlmDataset } from "@node-llm/core";
 import "@tensorflow/tfjs-node";
-import { encode as gptEncode } from "gpt-tokenizer";
+import { encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
 
 /**
  * Chapter 2, Lesson 4: Dataset & DataLoader.

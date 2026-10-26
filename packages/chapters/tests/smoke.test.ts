@@ -1,6 +1,6 @@
 import { DataLoader, LlmDataset } from "@node-llm/core";
 import * as tf from "@tensorflow/tfjs-node";
-import { decode, encode } from "gpt-tokenizer";
+import { decode, encode } from "gpt-tokenizer/encoding/r50k_base";
 import { describe, expect, it } from "vitest";
 
 describe("chapters environment smoke test", () => {
@@ -21,6 +21,11 @@ describe("chapters environment smoke test", () => {
   it("gpt-tokenizer round-trips text", () => {
     const text = "hello world, tokens!";
     expect(decode(encode(text))).toBe(text);
+  });
+
+  it("gpt-tokenizer uses GPT-2's vocabulary", () => {
+    expect(encode("Hello world")).toEqual([15496, 995]);
+    expect(decode([50256])).toBe("<|endoftext|>");
   });
 
   it("core data pipeline is importable across packages", () => {

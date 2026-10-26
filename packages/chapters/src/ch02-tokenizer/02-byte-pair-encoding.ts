@@ -1,9 +1,10 @@
-import { decode as gptDecode, encode as gptEncode } from "gpt-tokenizer";
+import { decode as gptDecode, encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
 
 /**
  * Chapter 2, Lesson 2: byte-pair encoding via `gpt-tokenizer`.
  *
- * We reuse the same BPE tokenizer GPT-2/3/4 use rather than building one from scratch.
+ * We reuse GPT-2's BPE tokenizer (`r50k_base`) rather than building one from scratch. The
+ * package's default export is GPT-4o's `o200k_base`, whose ids don't fit a 50,257-token vocab.
  * `encode` maps text to token ids; `decode` maps ids back to the original text.
  */
 function main(): void {

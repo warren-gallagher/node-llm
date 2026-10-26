@@ -1,6 +1,6 @@
 import * as tf from "@tensorflow/tfjs-node";
 import { DataLoader, LlmDataset } from "@node-llm/core";
-import { encode as gptEncode } from "gpt-tokenizer";
+import { encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
 
 /**
  * Chapter 2, Lesson 6: Positional encoding.
