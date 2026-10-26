@@ -9,6 +9,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
 - [Chapter 2: Tokenizer, data, and embeddings](#chapter-2-tokenizer-data-and-embeddings)
   - [What do `vocabSize` and `embDim` look like in modern LLMs?](#what-do-vocabsize-and-embdim-look-like-in-modern-llms)
   - [When embeddings "cluster", is that in one dimension, a few, or all of them?](#when-embeddings-cluster-is-that-in-one-dimension-a-few-or-all-of-them)
+  - [How would I train on a whole book or web articles, and what metadata matters?](#how-would-i-train-on-a-whole-book-or-web-articles-and-what-metadata-matters)
 
 ---
 
@@ -72,3 +73,86 @@ flowchart LR
 ```
 
 **A caveat about the classic examples:** `king`/`queen` and `cat`/`kitten` come from word-level models like word2vec. A GPT's input embedding table is per token, and BPE splits some words into several tokens. Much of a word's meaning in context (a river "bank" vs. a bank that holds money) is also built up by the attention layers in later chapters, not stored in the input embedding. GPT input embeddings still cluster by meaning, just less cleanly than the classic examples suggest.
+
+### How would I train on a whole book or web articles, and what metadata matters?
+
+**Context:** The demos tokenize single sentences, such as `gptEncode("Life is like box of chocolate ...")`. The sliding-window dataset is built in [`dataset.ts`](../packages/core/src/data/dataset.ts) and batched by [`dataLoader.ts`](../packages/core/src/data/dataLoader.ts). Chapter 5's [`train.ts`](../packages/chapters/src/ch05-training/train.ts) will train on a short story.
+
+**Short answer:** You give the tokenizer the whole text, but the model only ever sees one context-length window at a time. Web pages need cleaning first. Then each one becomes another document in the same token stream. During pretraining the model receives no metadata, only token ids. Metadata is stored per document and used to filter, weight, and audit the data.
+
+#### A whole book
+
+`LlmDataset` takes one long array of token ids and slides a window of `maxLength` tokens over it, moving `stride` tokens each step. It works the same for a sentence or a novel:
+
+```ts
+import { readFileSync } from "node:fs";
+import { encode } from "gpt-tokenizer/encoding/r50k_base"; // GPT-2's encoding (see note below)
+
+const ids = encode(readFileSync("book.txt", "utf8")); // ~130k tokens for a 100k-word novel
+const dataset = new LlmDataset(ids, 1024, 1024); // GPT-2 context length, no overlap
+```
+
+The model never takes in "the book". It takes in about 130 separate 1,024-token windows, which `DataLoader` shuffles. The model can only learn connections between tokens that fall in the same window, which is one reason context length matters.
+
+A single book is tiny, so the model will mostly memorize it. That's fine for learning how training works. Real pretraining uses trillions of tokens: Llama 3 used about 15T (as of 2026-10).
+
+#### Many documents
+
+Join the documents into one stream, with GPT-2's `<|endoftext|>` special token between each one. It marks the point where one text ends and an unrelated one begins. Without it, the model learns to continue the end of one article with the start of the next.
+
+In GPT-2's vocabulary, `<|endoftext|>` is token id **50256**, the last id in the 50,257-token vocabulary. `gpt-tokenizer` uses the same id. The simplest approach is to append the id directly instead of putting the string into the text:
+
+```ts
+const END_OF_TEXT = 50256; // <|endoftext|> in GPT-2's vocabulary
+
+const ids = docs.flatMap((doc) => [...encode(doc), END_OF_TEXT]);
+```
+
+Appending the id directly also avoids two problems with `gpt-tokenizer` (checked against v3.4.0):
+
+- By default, `encode` throws `Disallowed special token found` when the text contains `<|endoftext|>`. This protects against user-supplied text injecting control tokens.
+- With `{ allowedSpecial: new Set([EndOfText]) }`, the token is recognized only at the very start of the string. In the middle of a string, it's encoded as ordinary characters (`<`, `|`, `end`, …).
+
+Windows can still cross a document boundary. Large training setups either accept this or mask attention so tokens can't attend across documents. Split training and validation data **by document**, not by position in the joined stream, so the two halves of one article don't end up in different sets.
+
+#### Web articles need cleaning
+
+Raw HTML is mostly navigation, ads, cookie banners, and markup. The usual cleanup steps:
+
+1. **Extract the main text.** Tools such as Trafilatura and Mozilla's Readability do this.
+2. **Remove duplicates.** This includes both exact copies and near-copies. The web repeats itself a lot, and duplicated text gets memorized.
+3. **Filter.** Detect the language, score quality (drop spam, keyword stuffing, and page fragments), and remove personal information.
+
+Public datasets such as FineWeb and C4 are the result of applying these steps to Common Crawl.
+
+#### Metadata
+
+Metadata isn't fed to the model during pretraining. It's stored per document, alongside the text:
+
+| Metadata | What it's used for |
+| --- | --- |
+| Source / URL, domain | Weighting the data mix (e.g. books 2×, forums 0.5×), tracing problems back to a source |
+| License / copyright status | Deciding what may be used; Project Gutenberg is a public-domain source |
+| Language | Filtering and balancing across languages |
+| Date (published / crawled) | Knowing the data's cutoff date, choosing time ranges |
+| Quality score, dedup hash | Filtering and deduplication |
+| Token count | Planning dataset size and mix proportions |
+
+There are two cases where metadata-like information does reach the model:
+
+- **Metadata conditioning (research).** Some work prepends each document's source URL as plain text, which helps the model learn different styles faster (Wikipedia-style vs. forum-style text). The prefix is dropped near the end of training. This is an experiment, not standard practice.
+- **Fine-tuning.** Instruction data has a structure the model sees, such as `### Instruction:` / `### Response:` templates or chat role markers. That structure is part of the text itself, not a separate field.
+
+#### Scaling beyond the demo
+
+`LlmDataset` builds every window up front as JavaScript `number[]` arrays. That's fine for a book, but too much for a real corpus. At scale, you tokenize once and write the ids to a binary file of 16-bit integers (every GPT-2 id fits in `uint16`). Training then reads random windows straight from that file. nanoGPT's `train.bin` works this way.
+
+```mermaid
+flowchart LR
+    A["Raw sources<br/>(books, web pages)"] --> B["Clean<br/>extract, dedupe, filter"]
+    B --> C["Tokenize each doc"]
+    C --> D["Concatenate, with<br/>&lt;|endoftext|&gt; (50256)<br/>after each doc"]
+    D --> E["Sliding windows<br/>(LlmDataset)"]
+    E --> F["Shuffled batches<br/>(DataLoader)"]
+    M[("Metadata per doc<br/>source, license, lang, date")] -.->|"filter & weight"| B
+```
