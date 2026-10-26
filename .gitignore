@@ -14,4 +14,4 @@ checkpoints/
 *.safetensors
 
 # Local data corpora (keep small samples in fixtures/ instead)
-data/
+/data/

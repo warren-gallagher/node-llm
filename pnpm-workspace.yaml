@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
 
-onlyBuiltDependencies:
-  - "@tensorflow/tfjs-node"
-  - esbuild
+allowBuilds:
+  '@tensorflow/tfjs-node': true
+  core-js: true
+  esbuild: true
