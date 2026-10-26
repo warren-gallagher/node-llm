@@ -24,8 +24,9 @@ export interface MultiHeadAttentionConfig {
  *
  * The Q/K/V projections are split into `numHeads` independent heads that each attend over
  * a `dOut / numHeads`-sized subspace. The heads run in parallel, their outputs are
- * concatenated, and a final output projection (`Wo`) mixes them back together. This is the
- * exact form used inside each transformer block.
+ * concatenated, and a final output projection (`Wo`, with bias `bo`) mixes them back
+ * together. This is the exact form used inside each transformer block. The output bias
+ * matches the book's `nn.Linear` out_proj and GPT-2's `c_proj`, so pretrained weights fit.
  */
 export class MultiHeadAttention implements Attention {
   readonly weights: tf.Variable[] = [];
@@ -34,6 +35,7 @@ export class MultiHeadAttention implements Attention {
   private readonly wKey: tf.Variable;
   private readonly wValue: tf.Variable;
   private readonly wOut: tf.Variable;
+  private readonly bOut: tf.Variable;
   private readonly bQuery?: tf.Variable;
   private readonly bKey?: tf.Variable;
   private readonly bValue?: tf.Variable;
@@ -72,7 +74,8 @@ export class MultiHeadAttention implements Attention {
     this.wKey = tf.variable(tf.mul(tf.randomNormal([dIn, dOut]), scale));
     this.wValue = tf.variable(tf.mul(tf.randomNormal([dIn, dOut]), scale));
     this.wOut = tf.variable(tf.mul(tf.randomNormal([dOut, dOut]), dOut ** -0.5));
-    this.weights.push(this.wQuery, this.wKey, this.wValue, this.wOut);
+    this.bOut = tf.variable(tf.zeros([dOut]));
+    this.weights.push(this.wQuery, this.wKey, this.wValue, this.wOut, this.bOut);
 
     if (qkvBias) {
       this.bQuery = tf.variable(tf.zeros([dOut]));
@@ -115,7 +118,7 @@ export class MultiHeadAttention implements Attention {
       ) as tf.Tensor3D;
 
       // Final output projection mixes information across heads.
-      return project(merged, this.wOut as tf.Tensor2D);
+      return project(merged, this.wOut as tf.Tensor2D, this.bOut as tf.Tensor1D);
     });
   }
 
