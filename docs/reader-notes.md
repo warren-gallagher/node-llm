@@ -11,6 +11,9 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [What do `vocabSize` and `embDim` look like in modern LLMs?](#what-do-vocabsize-and-embdim-look-like-in-modern-llms)
   - [When embeddings "cluster", is that in one dimension, a few, or all of them?](#when-embeddings-cluster-is-that-in-one-dimension-a-few-or-all-of-them)
   - [How would I train on a whole book or web articles, and what metadata matters?](#how-would-i-train-on-a-whole-book-or-web-articles-and-what-metadata-matters)
+- [Chapter 3: Attention](#chapter-3-attention)
+  - [Why do we need attention, beyond the RNN bottleneck?](#why-do-we-need-attention-beyond-the-rnn-bottleneck)
+  - [Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?](#why-does-each-piece-of-attention-exist-qkv-d-causal-mask-heads)
 
 ---
 
@@ -182,3 +185,73 @@ flowchart LR
     E --> F["Shuffled batches<br/>(DataLoader)"]
     M[("Metadata per doc<br/>source, license, lang, date")] -.->|"filter & weight"| B
 ```
+
+---
+
+## Chapter 3: Attention
+
+### Why do we need attention, beyond the RNN bottleneck?
+
+**Context:** The book's [Self-attention lesson](https://book.humanexperiences.io/chapters/03-attention/01-self-attention/) gives the historical motivation. An encoder-decoder RNN compresses the whole input into one final state, so the decoder "has no access to the full input context". The rest of the chapter explains *how* attention works. This entry covers two further reasons *why*: what attention does to the vectors from Chapter 2, and why it beat the alternatives.
+
+**Short answer:** After Chapter 2, every token's vector is context-free. Attention is the step that mixes information between positions, so each token's vector can reflect the tokens around it. It does this in a way that depends on the content, connects any two tokens directly, and runs over all positions in parallel. No earlier approach had all three properties.
+
+#### Chapter 2's vectors don't know their context
+
+Each input vector is `token embedding + position embedding`. That vector is the same whatever the surrounding tokens are. "bank" has one vector in "river bank" and in "bank account". "it" has one vector whatever it refers to:
+
+> The animal didn't cross the street because **it** was too tired.
+
+Here, "it" must pick up meaning from "animal". Change "tired" to "wide" and it must pick up meaning from "street" instead. A model that predicts the next token one position at a time, using only that position's vector, can't do this. Something has to move information between positions, and that is attention's job. Each token's output is a weighted mix of the other tokens' vectors, and the weights are computed from the tokens themselves.
+
+```mermaid
+flowchart LR
+    subgraph before["After Chapter 2: context-free"]
+        A1["The"] ~~~ A2["animal"] ~~~ A3["…"] ~~~ A4["it"] ~~~ A5["tired"]
+    end
+    subgraph after["After attention: context-aware"]
+        B4["it<br/>(now carries 'animal')"]
+    end
+    A2 -->|"high weight"| B4
+    A4 -->|"itself"| B4
+    A5 -->|"some weight"| B4
+    A1 -.->|"low weight"| B4
+```
+
+See also the caveat at the end of [the clustering entry](#when-embeddings-cluster-is-that-in-one-dimension-a-few-or-all-of-them): much of a word's meaning in context is built here, not in the input embedding.
+
+#### Why attention, and not another way of mixing
+
+| Approach | Mixing depends on content? | Path between distant tokens | Parallel across positions? |
+| --- | --- | --- | --- |
+| Fixed averaging / convolution | No: same weights for every sentence | Short, but blind to content | Yes |
+| RNN | Yes | Long: steps through every token in between, and the signal fades | No: one token at a time |
+| **Attention** | **Yes: weights computed from the tokens** | **1 step between any two tokens** | **Yes: all positions at once** |
+
+The last column is the main practical reason transformers replaced RNNs. An RNN must finish token 499 before starting token 500. Attention is a few matrix multiplications over the whole sequence, which is exactly the work GPUs do quickly. That made training on trillions of tokens practical.
+
+**The cost:** every token scores every other token, so the work grows with the **square** of the context length. This is why context windows have limits, and why so much research goes into making long contexts cheaper.
+
+### Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?
+
+**Context:** The chapter adds pieces one at a time, from [simplified attention](../packages/core/src/model/attention/simplifiedAttention.ts) to [self-attention with trainable weights](../packages/core/src/model/attention/selfAttention.ts) to [multi-head attention](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts). This entry gives the reason for each addition.
+
+**Short answer:** Each piece fixes a specific problem with the step before it:
+
+- Dot products measure relevance.
+- Softmax turns relevance into mixing weights.
+- Q/K/V separate "relevant" from "similar".
+- √d keeps softmax trainable.
+- The causal mask prevents looking at the answer.
+- Multiple heads track several relationships at once.
+
+| Piece | Code | Why it's there |
+| --- | --- | --- |
+| Dot-product scores | [`simplifiedAttention.ts:23`](../packages/core/src/model/attention/simplifiedAttention.ts#L23) | A dot product is a cheap measure of how well two vectors line up. It serves as "how relevant is token j to token i?" for every pair at once (a `[seqLen, seqLen]` matrix). |
+| Softmax | [`simplifiedAttention.ts:28`](../packages/core/src/model/attention/simplifiedAttention.ts#L28) | Turns scores into weights that are positive and sum to 1, so each output is a weighted average of the other tokens' vectors. |
+| Separate Q, K, V projections | [`selfAttention.ts:63-65`](../packages/core/src/model/attention/selfAttention.ts#L63-L65) | In simplified attention, a token scores highest against tokens with *similar meaning*, including itself. But relevance isn't similarity: "it" should find a noun, not another pronoun. The **query** encodes what a token is looking for, the **key** what each token offers, and the **value** what is passed along when a token is attended to. All three are learned. |
+| Divide by √d | [`selfAttention.ts:68`](../packages/core/src/model/attention/selfAttention.ts#L68) | Dot products get larger as vectors get longer. Large scores push softmax toward one-hot weights (all weight on one token), which makes the gradients nearly zero. Scaling by √d keeps scores in a range where the model can still learn. This repo applies it in simplified attention too. |
+| Causal mask | [`utils.ts:34`](../packages/core/src/model/attention/utils.ts#L34) | The model is trained to predict the next token, so it must not see that token. The mask adds −1e9 to scores for later positions, so their softmax weight becomes about 0. |
+| Multiple heads | [`multiHeadAttention.ts:59-65`](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts#L59-L65) | One softmax gives one weighted average. Several heads can track different relationships at once, such as grammar, which noun a pronoun refers to, or nearby position. Each head works in `embDim / numHeads` dimensions, so the total cost stays about the same as one full-width head. This is why `embDim` must be divisible by `numHeads` (see [the `vocabSize`/`embDim` entry](#what-do-vocabsize-and-embdim-look-like-in-modern-llms)). |
+
+Chapter 4 stacks attention with feed-forward layers into transformer blocks. Each layer's attention works on vectors the previous layers have already made context-aware, so later layers can model more abstract relationships.
