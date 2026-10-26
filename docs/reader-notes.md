@@ -13,6 +13,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [How would I train on a whole book or web articles, and what metadata matters?](#how-would-i-train-on-a-whole-book-or-web-articles-and-what-metadata-matters)
 - [Chapter 3: Attention](#chapter-3-attention)
   - [Why do we need attention, beyond the RNN bottleneck?](#why-do-we-need-attention-beyond-the-rnn-bottleneck)
+  - [Are grammar rules programmed in, or does the model learn them?](#are-grammar-rules-programmed-in-or-does-the-model-learn-them)
   - [Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?](#why-does-each-piece-of-attention-exist-qkv-d-causal-mask-heads)
 
 ---
@@ -231,6 +232,27 @@ See also the caveat at the end of [the clustering entry](#when-embeddings-cluste
 The last column is the main practical reason transformers replaced RNNs. An RNN must finish token 499 before starting token 500. Attention is a few matrix multiplications over the whole sequence, which is exactly the work GPUs do quickly. That made training on trillions of tokens practical.
 
 **The cost:** every token scores every other token, so the work grows with the **square** of the context length. This is why context windows have limits, and why so much research goes into making long contexts cheaper.
+
+Nothing in the attention code knows that "it" should attend to "animal". That behavior is learned; see the next entry.
+
+### Are grammar rules programmed in, or does the model learn them?
+
+**Context:** The previous entry describes "it" taking meaning from "animal". Nothing in the [attention code](../packages/core/src/model/attention/) refers to nouns, pronouns, or grammar.
+
+**Short answer:** The model learns them. Nobody writes grammar rules, parts of speech, or a coreference algorithm. The only instruction the model gets is the training objective: predict the next token, scored by cross-entropy loss (Chapter 5). Knowing what "it" refers to makes the next token easier to predict, so gradient descent strengthens whatever weights do that. Grammar-like behavior is a side effect of getting better at prediction.
+
+#### Evidence that models learn this
+
+- **Grammar can be read out of trained models.** Researchers train small "probe" classifiers on a model's internal vectors and can recover parse trees, parts of speech, and which noun a pronoun refers to. None of this was labeled in the training data. Hewitt & Manning's structural probe (2019) is the classic example.
+- **Attention heads specialize.** Clark et al. (2019, "What Does BERT Look At?") found individual heads in BERT that track direct objects, determiners attaching to their nouns, and coreference. Olsson et al. (2022) describe *induction heads*, which learn the pattern "if A was followed by B earlier, predict B after A again". They are behind much in-context copying.
+- **The same architecture works for any sequence.** The same code learns English, Japanese, Python, and DNA or protein sequences. Nothing in the architecture is specific to one language.
+
+#### Caveats
+
+1. **What the model learns isn't explicit rules.** It's spread across many weights and is statistical. It's often right, and sometimes wrong in ways a rule-based system wouldn't be. Sentences that need real-world knowledge ("The trophy didn't fit in the suitcase because *it* was too big/small") tripped up models for years.
+2. **The architecture still shapes what can be learned.** Position embeddings, the causal mask, multiple heads, and the tokenizer don't encode grammar. They do make some patterns easier to learn than others. Researchers call these built-in tendencies *inductive biases*. Designing an architecture is choosing which ones the model gets, without writing rules.
+3. **It takes a lot of data.** A GPT-2-sized model trained on one book, like the Chapter 5 demo, learns local patterns such as spelling, common word pairs, and punctuation. It doesn't learn reliable coreference. These abilities appear gradually as data and model size grow.
+4. **"Emergent" has a narrower technical meaning.** In the research literature, "emergent abilities" (Wei et al., 2022) means abilities that seem to appear suddenly at a certain model scale. Whether they're really sudden is debated: Schaeffer et al. (2023) argue the jump mostly comes from how the abilities are measured. The broader sense, behavior that arises from training instead of being programmed in, is uncontroversial.
 
 ### Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?
 
