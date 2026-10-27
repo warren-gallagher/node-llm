@@ -27,6 +27,16 @@ export function project(input: tf.Tensor3D, weight: tf.Tensor2D, bias?: tf.Tenso
 }
 
 /**
+ * A fresh `[dIn, dOut]` weight matrix with PyTorch's default `nn.Linear` initialization:
+ * uniform in [-1/sqrt(dIn), 1/sqrt(dIn)]. Matching it makes training follow the book's loss
+ * curve; a wider start (e.g. standard deviation 1/sqrt(dIn)) learns noticeably slower.
+ */
+export function linearWeight(dIn: number, dOut: number): tf.Tensor2D {
+  const bound = dIn ** -0.5;
+  return tf.randomUniform([dIn, dOut], -bound, bound);
+}
+
+/**
  * Add a causal mask to attention scores so position `i` cannot attend to any position
  * `j > i` (no peeking at the future). `scores` has shape `[..., seqLen, seqLen]`; the
  * mask broadcasts over any leading batch and head dimensions.

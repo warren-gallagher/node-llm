@@ -1,5 +1,5 @@
 import * as tf from "@tensorflow/tfjs-core";
-import { addCausalMask, project } from "../utils";
+import { addCausalMask, linearWeight, project } from "../utils";
 import type { Attention } from "../types";
 
 export interface MultiHeadAttentionConfig {
@@ -69,11 +69,10 @@ export class MultiHeadAttention implements Attention {
     this.dropout = dropout;
     this.causal = causal;
 
-    const scale = dIn ** -0.5;
-    this.wQuery = tf.variable(tf.mul(tf.randomNormal([dIn, dOut]), scale));
-    this.wKey = tf.variable(tf.mul(tf.randomNormal([dIn, dOut]), scale));
-    this.wValue = tf.variable(tf.mul(tf.randomNormal([dIn, dOut]), scale));
-    this.wOut = tf.variable(tf.mul(tf.randomNormal([dOut, dOut]), dOut ** -0.5));
+    this.wQuery = tf.variable(linearWeight(dIn, dOut));
+    this.wKey = tf.variable(linearWeight(dIn, dOut));
+    this.wValue = tf.variable(linearWeight(dIn, dOut));
+    this.wOut = tf.variable(linearWeight(dOut, dOut));
     this.bOut = tf.variable(tf.zeros([dOut]));
     this.weights.push(this.wQuery, this.wKey, this.wValue, this.wOut, this.bOut);
 
