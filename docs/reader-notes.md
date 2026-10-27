@@ -15,6 +15,8 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [Why do we need attention, beyond the RNN bottleneck?](#why-do-we-need-attention-beyond-the-rnn-bottleneck)
   - [Are grammar rules programmed in, or does the model learn them?](#are-grammar-rules-programmed-in-or-does-the-model-learn-them)
   - [Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?](#why-does-each-piece-of-attention-exist-qkv-d-causal-mask-heads)
+- [Chapter 4: The GPT model](#chapter-4-the-gpt-model)
+  - [Are modern LLMs still built this way?](#are-modern-llms-still-built-this-way)
 - [Chapter 5: Training](#chapter-5-training)
   - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
 - [General](#general)
@@ -282,6 +284,75 @@ Nothing in the attention code knows that "it" should attend to "animal". That be
 | Multiple heads | [`multiHeadAttention.ts:59-65`](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts#L59-L65) | One softmax gives one weighted average. Several heads can track different relationships at once, such as grammar, which noun a pronoun refers to, or nearby position. Each head works in `embDim / numHeads` dimensions, so the total cost stays about the same as one full-width head. This is why `embDim` must be divisible by `numHeads` (see [the `vocabSize`/`embDim` entry](#what-do-vocabsize-and-embdim-look-like-in-modern-llms)). |
 
 Chapter 4 stacks attention with feed-forward layers into transformer blocks. Each layer's attention works on vectors the previous layers have already made context-aware, so later layers can model more abstract relationships.
+
+---
+
+## Chapter 4: The GPT model
+
+### Are modern LLMs still built this way?
+
+**Context:** [`gpt.ts`](../packages/core/src/model/gpt.ts) and [`block.ts`](../packages/core/src/model/block.ts) describe GPT-2's design (2019): token and position embeddings, a stack of transformer blocks, a final normalization and an output head.
+
+**Short answer:** Mostly, yes. Nearly every major LLM is still a decoder-only stack of transformer blocks, pre-trained to predict the next token. What has changed is several components inside each block, the scale of the models and their training data, and above all how much happens after pre-training. Architectures that replace attention exist, but they are a minority and usually appear in hybrids that keep some attention layers.
+
+#### What has not changed
+
+- Tokens go in, pass through a stack of identical blocks, and come out as one score (logit) for every token in the vocabulary.
+- Each block has causal self-attention and a feed-forward layer, each with a shortcut connection and normalization before it (pre-norm, as in GPT-2).
+- Pre-training is still next-token prediction with cross-entropy loss.
+
+#### What changed inside the block (as of 2026-10)
+
+This applies to models that publish their architecture.
+
+| GPT-2 (this repo) | Common now | Examples |
+| --- | --- | --- |
+| Learned position embeddings: one vector per position, up to 1,024 | **RoPE** (rotary position embedding): positions are applied as a rotation of each query and key, so attention depends on how far apart tokens are | Llama, Qwen, Mistral, DeepSeek |
+| LayerNorm (subtracts the mean, divides by the standard deviation, then scale and shift) | **RMSNorm**: divides by the root mean square, with only a scale; cheaper and works as well | Most open models |
+| Feed-forward layer: expand, GELU, contract | **SwiGLU**: a gated feed-forward layer, where one projection decides how much of another passes through | Llama, Qwen, Mistral |
+| Multi-head attention: every head has its own keys and values | **Grouped-query attention (GQA)**: groups of query heads share one key/value head, which shrinks the memory used during generation | Llama 3, Qwen, Gemma; DeepSeek uses a related idea, multi-head latent attention (MLA) |
+| Every layer attends to the whole context | Some layers use **sliding-window** attention over only the most recent tokens | Mistral 7B, Gemma 2 and 3 |
+| One feed-forward layer per block | **Mixture of Experts (MoE)**: many feed-forward "experts" per block, with a small router choosing a few for each token, so only part of the model runs per token | Mixtral, DeepSeek-V3 (671B parameters in total, about 37B used per token), Llama 4, Qwen3, gpt-oss |
+| Biases on most linear layers | Often no biases | Llama (Qwen2 keeps biases on Q, K and V) |
+| 50,257-token vocabulary, 1,024-token context | Vocabularies of 128K–200K+ tokens; contexts of 128K tokens or more | Llama 3, GPT-4o's `o200k_base` tokenizer |
+
+Each of these changes swaps one component; none changes the overall design. A Llama-style block is a GPT-2 block with its parts swapped:
+
+```mermaid
+flowchart TB
+  subgraph GPT2["GPT-2 block (this repo)"]
+    direction TB
+    a1["x"] --> a2["LayerNorm"] --> a3["Multi-head attention<br/>(position already added to x)"] --> a4(("+"))
+    a1 --> a4
+    a4 --> a5["LayerNorm"] --> a6["Feed-forward<br/>(GELU)"] --> a7(("+"))
+    a4 --> a7
+  end
+  subgraph LLAMA["Llama-style block"]
+    direction TB
+    b1["x"] --> b2["RMSNorm"] --> b3["Grouped-query attention<br/>(RoPE applied to Q and K)"] --> b4(("+"))
+    b1 --> b4
+    b4 --> b5["RMSNorm"] --> b6["SwiGLU feed-forward<br/>(or Mixture of Experts)"] --> b7(("+"))
+    b4 --> b7
+  end
+```
+
+Raschka's repository includes a notebook that converts this GPT architecture to Llama step by step ([`ch05/07_gpt_to_llama`](https://github.com/rasbt/LLMs-from-scratch/tree/main/ch05/07_gpt_to_llama)). His article [The Big LLM Architecture Comparison](https://magazine.sebastianraschka.com/p/the-big-llm-architecture-comparison) surveys the variations across recent open models.
+
+#### What changed most: scale and post-training
+
+- **Data.** GPT-2 was trained on about 40 GB of web text. Llama 3 was trained on about 15 trillion tokens.
+- **Post-training.** Most of a modern assistant's behavior comes after pre-training. Supervised fine-tuning on instruction-and-response examples comes first. Preference tuning (RLHF or DPO) follows, using human or AI judgments of which answers are better. Since 2024, reinforcement learning on tasks whose answers can be checked automatically (OpenAI's o1, DeepSeek-R1) has produced "reasoning" models that write a long chain of thought before answering.
+- **Multimodality.** Images and audio are usually handled by a separate encoder whose outputs enter the same transformer as extra "tokens".
+- **Inference.** Generation uses a KV cache (the keys and values of earlier tokens are kept instead of recomputed) and weights quantized to 8, 4 or fewer bits.
+
+#### Alternatives to attention
+
+- **State-space and linear-attention layers** (Mamba, Gated DeltaNet) keep a fixed-size state instead of attending to every earlier token. This avoids attention's cost growing with the square of the context length. They mostly appear in **hybrids** that interleave them with ordinary attention layers, for example AI21's Jamba, NVIDIA's Nemotron-H and Qwen3-Next.
+- **Diffusion language models** generate a whole draft and refine it over several steps, rather than producing one token at a time. Examples are Inception's Mercury and Google's experimental Gemini Diffusion.
+
+#### Closed models
+
+OpenAI (GPT-4 onward), Anthropic and Google don't publish their models' architectures. They are widely understood to be transformer-based, and Mixture of Experts is widely reported for several of them, but these details are not confirmed by the vendors.
 
 ---
 
