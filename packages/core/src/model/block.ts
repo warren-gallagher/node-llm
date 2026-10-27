@@ -56,17 +56,19 @@ export class TransformerBlock {
   /** x: [batch, seqLen, embDim] -> [batch, seqLen, embDim] */
   forward(x: tf.Tensor3D, training = false): tf.Tensor3D {
     return tf.tidy(() => {
-      const drop = (t: tf.Tensor3D) =>
-        training && this.dropout > 0 ? tf.dropout(t, this.dropout) : t;
-
       // Attention sub-layer: tokens exchange information.
-      const attended = drop(this.attention.forward(this.norm1.forward(x), training));
+      const attended = this.drop(this.attention.forward(this.norm1.forward(x), training), training);
       const afterAttention = tf.add(x, attended) as tf.Tensor3D;
 
       // Feed-forward sub-layer: each token is processed on its own.
-      const fed = drop(this.feedForward.forward(this.norm2.forward(afterAttention)));
+      const fed = this.drop(this.feedForward.forward(this.norm2.forward(afterAttention)), training);
       return tf.add(afterAttention, fed) as tf.Tensor3D;
     });
+  }
+
+  /** Dropout on a sub-layer's output, only while training. */
+  private drop(t: tf.Tensor3D, training: boolean): tf.Tensor3D {
+    return training && this.dropout > 0 ? (tf.dropout(t, this.dropout) as tf.Tensor3D) : t;
   }
 
   dispose(): void {

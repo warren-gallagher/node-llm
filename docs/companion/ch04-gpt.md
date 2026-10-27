@@ -116,7 +116,7 @@ Without shortcuts, the gradients are about a thousand times smaller. A GPT stack
 
 ### Putting the block together
 
-A GPT-2 block has two sub-layers. Each is wrapped the same way: normalize, transform, add the input back ([`block.ts:57-70`](../../packages/core/src/model/block.ts#L57-L70)):
+A GPT-2 block has two sub-layers. Each is wrapped the same way: normalize, transform, add the input back ([`block.ts:57-67`](../../packages/core/src/model/block.ts#L57-L67)):
 
 ```mermaid
 flowchart TB
