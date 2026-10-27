@@ -15,6 +15,8 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [Why do we need attention, beyond the RNN bottleneck?](#why-do-we-need-attention-beyond-the-rnn-bottleneck)
   - [Are grammar rules programmed in, or does the model learn them?](#are-grammar-rules-programmed-in-or-does-the-model-learn-them)
   - [Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?](#why-does-each-piece-of-attention-exist-qkv-d-causal-mask-heads)
+- [General](#general)
+  - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
 
 ---
 
@@ -277,3 +279,82 @@ Nothing in the attention code knows that "it" should attend to "animal". That be
 | Multiple heads | [`multiHeadAttention.ts:59-65`](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts#L59-L65) | One softmax gives one weighted average. Several heads can track different relationships at once, such as grammar, which noun a pronoun refers to, or nearby position. Each head works in `embDim / numHeads` dimensions, so the total cost stays about the same as one full-width head. This is why `embDim` must be divisible by `numHeads` (see [the `vocabSize`/`embDim` entry](#what-do-vocabsize-and-embdim-look-like-in-modern-llms)). |
 
 Chapter 4 stacks attention with feed-forward layers into transformer blocks. Each layer's attention works on vectors the previous layers have already made context-aware, so later layers can model more abstract relationships.
+
+---
+
+## General
+
+### How does software know how to load a model file? Are formats self-describing, and do names matter?
+
+**Context:** This repo's model is configured by [`GptConfig`](../packages/core/src/model/gpt.ts) (`embDim`, `numLayers`, …) and builds its layers in code. Loading someone else's trained weights, such as OpenAI's GPT-2, means knowing which tensor in their file belongs to which layer here, and with what configuration.
+
+**Short answer:** A loader combines three things: a **tensor file**, a **configuration** describing the architecture, and **code** that implements that architecture. Formats differ in how much of the first two travels inside the file. The file extension only selects the parser. Model names are mostly for people; software reads metadata, not names.
+
+#### What a loader needs
+
+1. **The tensors:** named arrays of numbers (the container format's job).
+2. **The architecture:** which layers, in what order, with what sizes, and which tensor name goes where (a config plus code).
+3. **What surrounds the model:** the tokenizer, the chat template, and default generation settings.
+
+#### How self-describing the formats are (as of 2026-10)
+
+| Format | Tensors (names, shapes, types) | Architecture | Tokenizer / chat template | Used by |
+| --- | --- | --- | --- | --- |
+| PyTorch pickle (`.bin`, `.pt`) | Yes, but loading can **run arbitrary Python code** | No | No | Older Hugging Face models |
+| **safetensors** | Yes, data only, so it's safe to load | No (only an optional string map, e.g. `{"format": "pt"}`) | No | Hugging Face |
+| **GGUF** | Yes, with per-tensor quantization types | **Yes, as metadata**: `general.architecture = "llama"`, layer count, head counts, context length… | **Yes**: token list, merges, chat template | llama.cpp, Ollama, LM Studio |
+| ONNX, TF SavedModel, Core ML | Yes | **Yes, as a computation graph** of operations | Usually separate | Cross-platform and mobile runtimes |
+
+GPT-2's [Hugging Face repository](https://huggingface.co/openai-community/gpt2/tree/main) shows the spread. The same weights are published as `model.safetensors`, `pytorch_model.bin`, `tf_model.h5`, `flax_model.msgpack`, `rust_model.ot`, three `.tflite` variants and an `onnx/` folder, one container per runtime.
+
+#### Hugging Face: a folder, not a file
+
+safetensors describes only the tensors. The rest lives in sibling files with agreed names. GPT-2's `config.json` (abridged):
+
+```json
+{
+  "architectures": ["GPT2LMHeadModel"],
+  "model_type": "gpt2",
+  "activation_function": "gelu_new",
+  "n_embd": 768, "n_layer": 12, "n_head": 12, "n_positions": 1024,
+  "vocab_size": 50257, "layer_norm_epsilon": 1e-05,
+  "eos_token_id": 50256
+}
+```
+
+This is `GptConfig` under other names: `n_embd` is `embDim`, `n_layer` is `numLayers`, `n_head` is `numHeads`, `n_positions` is `contextLength`. `gelu_new` is the tanh-approximation GELU that GPT-2 uses. The `transformers` library reads `model_type`, looks up `"gpt2"` in a registry of model classes it ships, and builds a `GPT2LMHeadModel`. That class names its parameters to match the tensor names in the file, so loading is a direct name-to-name copy. Alongside sit `tokenizer.json`, `tokenizer_config.json` (which holds the chat template, written in the Jinja template language) and `generation_config.json`. Large models are split into numbered shards (`model-00001-of-00004.safetensors`, …) with an index file mapping each tensor to its shard.
+
+So the *description* is data, but the *architecture* is code that must already exist in the library. A new architecture won't load until the library supports it, or until the model ships its own Python code and the user opts in with `trust_remote_code=True`, which means running code downloaded with the model. vLLM works the same way, keyed on the `architectures` field.
+
+```mermaid
+flowchart LR
+    cfg["config.json<br/>model_type: gpt2"] --> reg{"Library's registry<br/>of model classes"}
+    reg --> cls["GPT2LMHeadModel<br/>(code in the library)"]
+    st["model.safetensors<br/>named tensors"] -->|"copy by name"| cls
+    tok["tokenizer.json<br/>tokenizer_config.json"] --> run["Ready to run"]
+    cls --> run
+```
+
+#### GGUF: one self-contained file
+
+GGUF puts the configuration, tokenizer and chat template inside the file as typed key-value metadata, and uses standardized tensor names (`blk.0.attn_q.weight`). That's why a single `.gguf` file runs in Ollama or LM Studio with no other files. The runtime still needs built-in code for the architecture it names, so a new model family works only after llama.cpp adds support. ONNX goes furthest: the file contains the computation graph itself, so a runtime only needs to implement the individual operations (matrix multiply, softmax, …), not know the architecture.
+
+#### File extensions
+
+The extension tells software which parser to try. The first bytes usually confirm it: GGUF files begin with the magic bytes `GGUF`, and current PyTorch files are zip archives beginning with `PK`. safetensors has no magic bytes; its first 8 bytes are simply the header length. No extension says anything about the architecture.
+
+#### Model names
+
+| Part of `Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf` | Meaning |
+| --- | --- |
+| `Meta-Llama-3.1` | Publisher, family, version |
+| `8B` | About 8 billion parameters |
+| `Instruct` | Fine-tuned to follow instructions; a "base" model only continues text |
+| `Q4_K_M` | llama.cpp's 4-bit quantization scheme ("K-quant, medium") |
+| `.gguf` | Container format |
+
+Other common parts are context length (`128k`), other quantization schemes (`AWQ`, `GPTQ`, `fp8`, `bf16`), and specialization (`Coder`, `Vision`).
+
+Names are almost entirely for people. Software reads metadata. The exceptions are heuristics: for example, text-generation-webui has long matched model names against patterns to guess a prompt template when a file didn't include one. Registry tags such as Ollama's `llama3.1:8b-instruct-q4_K_M` look parsed but are lookup keys for a stored manifest, and API model ids such as `gpt-4o-2024-08-06` are routing keys on the provider's side.
+
+Nothing verifies a name, or most metadata. A file called `…-8B-Instruct-…` can contain anything, GGUF metadata can be edited, and `config.json` is a text file beside the weights. Formats describe *what* a file claims to contain; they don't prove who produced it or whether the claims are true.
