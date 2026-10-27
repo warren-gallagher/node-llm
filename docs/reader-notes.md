@@ -15,6 +15,8 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [Why do we need attention, beyond the RNN bottleneck?](#why-do-we-need-attention-beyond-the-rnn-bottleneck)
   - [Are grammar rules programmed in, or does the model learn them?](#are-grammar-rules-programmed-in-or-does-the-model-learn-them)
   - [Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?](#why-does-each-piece-of-attention-exist-qkv-d-causal-mask-heads)
+- [Chapter 5: Training](#chapter-5-training)
+  - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
 - [General](#general)
   - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
 
@@ -279,6 +281,44 @@ Nothing in the attention code knows that "it" should attend to "animal". That be
 | Multiple heads | [`multiHeadAttention.ts:59-65`](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts#L59-L65) | One softmax gives one weighted average. Several heads can track different relationships at once, such as grammar, which noun a pronoun refers to, or nearby position. Each head works in `embDim / numHeads` dimensions, so the total cost stays about the same as one full-width head. This is why `embDim` must be divisible by `numHeads` (see [the `vocabSize`/`embDim` entry](#what-do-vocabsize-and-embdim-look-like-in-modern-llms)). |
 
 Chapter 4 stacks attention with feed-forward layers into transformer blocks. Each layer's attention works on vectors the previous layers have already made context-aware, so later layers can model more abstract relationships.
+
+---
+
+## Chapter 5: Training
+
+### Is GPT-2's training data available, and could this repo train on it?
+
+**Context:** Chapter 5 trains on a single short story, using the training loop in [`trainer.ts`](../packages/core/src/train/trainer.ts). OpenAI's pretrained GPT-2 weights are freely available, which raises the question of whether the data they were trained on is too.
+
+**Short answer:** No. OpenAI described GPT-2's dataset, WebText, but never released it. Open recreations built from the same recipe exist and work well. Training on one in this repo is possible in principle, but would take years on a CPU.
+
+#### The original: WebText
+
+The [GPT-2 paper](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) (2019) describes WebText. OpenAI collected the pages linked from Reddit posts with at least 3 karma, as a rough human quality filter, from posts made before December 2017. They removed duplicates and all Wikipedia pages. The result was about 8 million documents, or 40 GB of text. The recipe was published; the dataset was not.
+
+The closest release is the [gpt-2-output-dataset](https://github.com/openai/gpt-2-output-dataset), made for research on detecting machine-generated text. It includes 250,000 documents from WebText's test split alongside GPT-2's own outputs. That's a sample of the original, not enough to train on.
+
+#### Open substitutes (as of 2026-10)
+
+| Dataset | What it is | Size |
+| --- | --- | --- |
+| [OpenWebText](https://huggingface.co/datasets/Skylion007/openwebtext) (2019) | An independent recreation of WebText from the paper's recipe | About 8 million documents, 38 GB, about 9 billion GPT-2 tokens |
+| OpenWebText2 (EleutherAI) | A larger, newer recreation, released as part of *The Pile* | About 65 GB |
+| [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) (2024) | Common Crawl with extensive filtering and deduplication | Trillions of tokens, with 10-billion-token samples |
+
+These recreations work. Karpathy's [nanoGPT](https://github.com/karpathy/nanoGPT) trains GPT-2 124M from scratch on OpenWebText and matches the original's loss. His later `llm.c` project did the same on 10 billion FineWeb tokens in about 90 minutes on 8 H100 GPUs, slightly beating the original thanks to cleaner data.
+
+#### Could this repo train on it?
+
+The code would be the same as Chapter 5's. The hardware is the problem. Training GPT-2 small on a laptop CPU with this repo processes about 512 tokens every 5 seconds, roughly 100 tokens per second. One pass over OpenWebText's 9 billion tokens would take nearly **3 years**. That's why the chapter trains on one short story, and why loading pretrained weights is the practical way to get a capable model here.
+
+#### Nobody can check what GPT-2 saw
+
+Without WebText, there's no way to confirm whether a particular text, *The Verdict* or anything else, was in GPT-2's training data, and the weights can't reveal it either. So GPT-2's low loss on a text is not proof that it generalizes to unseen writing: it may have seen that text. Later models disclose even less. GPT-3's paper described its mix of data sources; GPT-4's technical report declined to describe its training data at all.
+
+#### Available is not the same as licensed
+
+OpenWebText and similar datasets are scraped web pages. The datasets are freely downloadable, but most of the pages in them are copyrighted by their authors. Recording each document's source and license (see [training on whole books and web articles](#how-would-i-train-on-a-whole-book-or-web-articles-and-what-metadata-matters)) is what makes questions about training data answerable later.
 
 ---
 
