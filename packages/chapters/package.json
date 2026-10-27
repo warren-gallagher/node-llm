@@ -19,6 +19,9 @@
     "ch04:2": "tsx src/ch04-gpt/02-transformer-block.ts",
     "ch04:3": "tsx src/ch04-gpt/03-gpt-model.ts",
     "ch04": "tsx src/ch04-gpt/main.ts",
+    "ch05:1": "tsx src/ch05-training/01-loss.ts",
+    "ch05:2": "tsx src/ch05-training/02-training-loop.ts",
+    "ch05:3": "tsx src/ch05-training/03-generation.ts",
     "ch05:train": "tsx src/ch05-training/train.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

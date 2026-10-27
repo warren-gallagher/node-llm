@@ -1,31 +1,39 @@
-import { DataLoader, GPT_CONFIG_124M, GptModel, LlmDataset, trainModel } from "@node-llm/core";
-import "@tensorflow/tfjs-node";
-import { encode as gptEncode } from "gpt-tokenizer/encoding/r50k_base";
+import { GPT_CONFIG_124M, GptModel, trainModel } from "@node-llm/core";
+import * as tf from "@tensorflow/tfjs-node";
+import { idsToText, loadVerdict, makeLoaders, textToIds } from "./shared";
 
 /**
- * Chapter 5: end-to-end training loop on a tiny corpus.
- *
- * The bare `import "@tensorflow/tfjs-node"` registers the native backend for core's ops.
- *
- * TODO(ch05): point this at the-verdict.txt (or your own corpus) and enable once
- * GptModel.forward + crossEntropyLoss are implemented.
+ * Chapter 5: end-to-end training on "The Verdict", with a small model so it finishes in
+ * well under a minute. Lesson 2 (`02-training-loop.ts`) runs the book's full-size setup.
  */
 function main(): void {
-  const corpus = "language models learn from data one token at a time. ".repeat(50);
-  const ids = gptEncode(corpus);
-
-  const dataset = new LlmDataset(ids, 16, 8);
-  const loader = new DataLoader(dataset, { batchSize: 4, shuffle: true });
-
-  const model = new GptModel({
+  const config = {
     ...GPT_CONFIG_124M,
-    contextLength: 16,
-    embDim: 64,
+    contextLength: 64,
+    embDim: 128,
     numHeads: 4,
     numLayers: 2,
+  };
+  const { train, val } = makeLoaders(loadVerdict(), config.contextLength, 8);
+  const model = new GptModel(config);
+  console.log(`parameters: ${model.numParameters().toLocaleString()}`);
+
+  trainModel(model, train, {
+    epochs: 10,
+    learningRate: 0.001,
+    weightDecay: 0.1,
+    evalEvery: 10,
+    valLoader: val,
+    onEval: (p) =>
+      console.log(`step ${p.step}: train ${p.trainLoss.toFixed(3)}, val ${p.valLoss.toFixed(3)}`),
   });
 
-  trainModel(model, loader, { epochs: 1, learningRate: 4e-4 });
+  const prompt = textToIds("Every effort moves you");
+  const out = model.generate(prompt, 30);
+  console.log(`sample: ${JSON.stringify(idsToText(out))}`);
+
+  tf.dispose([prompt, out]);
+  model.dispose();
 }
 
 main();
