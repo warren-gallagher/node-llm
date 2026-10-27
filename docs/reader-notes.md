@@ -19,6 +19,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
 - [General](#general)
   - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
+  - [Is there a Python version of this material?](#is-there-a-python-version-of-this-material)
 
 ---
 
@@ -398,3 +399,32 @@ Other common parts are context length (`128k`), other quantization schemes (`AWQ
 Names are almost entirely for people. Software reads metadata. The exceptions are heuristics: for example, text-generation-webui has long matched model names against patterns to guess a prompt template when a file didn't include one. Registry tags such as Ollama's `llama3.1:8b-instruct-q4_K_M` look parsed but are lookup keys for a stored manifest, and API model ids such as `gpt-4o-2024-08-06` are routing keys on the provider's side.
 
 Nothing verifies a name, or most metadata. A file called `…-8B-Instruct-…` can contain anything, GGUF metadata can be edited, and `config.json` is a text file beside the weights. Formats describe *what* a file claims to contain; they don't prove who produced it or whether the claims are true.
+
+### Is there a Python version of this material?
+
+**Context:** [`GPT_CONFIG_124M`](../packages/core/src/model/gpt.ts) "mirrors the book's `GPT_CONFIG_124M`", and the Chapter 5 stub in [`train.ts`](../packages/chapters/src/ch05-training/train.ts) points at `the-verdict.txt`. Both come from an earlier book that this one follows closely.
+
+**Short answer:** Yes. Sebastian Raschka's [*Build a Large Language Model (From Scratch)*](https://www.manning.com/books/build-a-large-language-model-from-scratch) (Manning, 2024) builds the same GPT in Python with PyTorch. The book is paid; its code, as Jupyter notebooks with their outputs, is free at [rasbt/LLMs-from-scratch](https://github.com/rasbt/LLMs-from-scratch). It follows the same chapter order, the same 124M configuration and the same training text, and it continues past pre-training into fine-tuning.
+
+#### How the chapters line up
+
+| Raschka's book | This repo |
+| --- | --- |
+| 1. Understanding large language models | Background only |
+| 2. Working with text data | [`ch02-tokenizer`](../packages/chapters/src/ch02-tokenizer/) |
+| 3. Coding attention mechanisms | [`ch03-attention`](../packages/chapters/src/ch03-attention/) |
+| 4. Implementing a GPT model from scratch to generate text | [`ch04-gpt`](../packages/chapters/src/ch04-gpt/) |
+| 5. Pretraining on unlabeled data (ends by loading OpenAI's GPT-2 weights) | [`ch05-training`](../packages/chapters/src/ch05-training/) |
+| 6. Fine-tuning for classification | No equivalent yet |
+| 7. Fine-tuning to follow instructions | No equivalent yet |
+| Appendix A: Introduction to PyTorch | Not needed; this repo uses TensorFlow.js |
+| Appendix D: Extras for the training loop (learning-rate warmup, cosine decay, gradient clipping) | No equivalent yet |
+| Appendix E: Parameter-efficient fine-tuning with LoRA | No equivalent yet |
+
+Chapters 6 and 7 and Appendix E cover post-training: adapting a pre-trained model to a task or to follow instructions. The GitHub repository also has bonus material outside the book. Examples include a KV cache for faster generation, converting the GPT-2 architecture to Llama-style models, and preference tuning with DPO.
+
+#### Using the two together
+
+- **Reference results.** The notebooks show their outputs (parameter counts, losses, generated text), so results here can be checked against them without installing Python. The unofficial companion chapters on this fork's `companion` branch are checked this way.
+- **Translating the code.** The PyTorch and TensorFlow.js code map closely. PyTorch's `nn.Linear` corresponds to a weight matrix plus bias here, `nn.Module` to a class with a `weights` array, and `torch.no_grad()` roughly to `tf.tidy()` outside a gradient computation. Two differences catch people out. PyTorch stores linear weights as `[dOut, dIn]` while this repo uses `[dIn, dOut]`. PyTorch's default initialization is a uniform range of ±1/√dIn, and matching it matters for training to behave like the book's.
+- **Going further.** Readers who want the fine-tuning chapters before this book publishes them can switch to the Python book from Chapter 6. The concepts from Chapters 2–5 carry over unchanged. Most of the tooling around real models (Hugging Face, safetensors, model cards) is also Python-first.
