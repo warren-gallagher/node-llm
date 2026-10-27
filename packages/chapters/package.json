@@ -22,6 +22,7 @@
     "ch05:1": "tsx src/ch05-training/01-loss.ts",
     "ch05:2": "tsx src/ch05-training/02-training-loop.ts",
     "ch05:3": "tsx src/ch05-training/03-generation.ts",
+    "ch05:gpt2": "tsx src/ch05-training/04-pretrained-gpt2.ts",
     "ch05:train": "tsx src/ch05-training/train.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
