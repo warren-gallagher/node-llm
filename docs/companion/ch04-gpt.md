@@ -2,6 +2,22 @@
 
 > **Unofficial companion chapter.** Written while the book's [Chapter 4](https://book.humanexperiences.io/chapters/04-gpt/) lessons were marked "Soon" (as of 2026-10-26). It follows the book's lesson outline and is not the author's text. See the [companion index](README.md).
 
+## What "GPT" means
+
+GPT stands for **Generative Pre-trained Transformer**. Each word names one part of what this repo builds:
+
+| Word | Meaning | Where it's built |
+| --- | --- | --- |
+| **Generative** | The model produces text one token at a time. It predicts the next token, appends it to the input, and repeats. | Chapter 5, lesson 3 (text generation) |
+| **Pre-trained** | Before it is used for anything specific, the model learns from a large amount of unlabeled text, with a single task: predict the next token. A pre-trained model can then be fine-tuned for a particular job, such as following instructions or classifying text. | Chapter 5 (pre-training); fine-tuning is covered later in Raschka's book |
+| **Transformer** | The neural network architecture introduced in *Attention Is All You Need* (Vaswani et al., 2017), built from attention and feed-forward layers stacked in blocks. | Chapter 3 (attention) and this chapter |
+
+The original transformer had two halves: an *encoder* that reads a whole input, and a *decoder* that writes output. It was designed for translation. GPT keeps only the decoder, and its attention is causal: each token can see only the tokens before it. That's exactly what next-token prediction needs. Encoder-only models such as BERT go the other way: every token sees the whole input, which suits understanding text but not generating it.
+
+OpenAI released GPT-1 in 2018 (117 million parameters), GPT-2 in 2019 (124 million to 1.5 billion), and GPT-3 in 2020 (175 billion). This repo builds GPT-2's smallest size. GPT-3 scaled up the same basic design. Many of today's open models, such as Llama, Mistral and Qwen, are still decoder-only transformers with this overall shape. They differ in details, for example RMSNorm instead of LayerNorm, rotary position embeddings instead of a learned position table, and a SwiGLU feed-forward network instead of GELU.
+
+## What this chapter builds
+
 By the end of Chapter 3 we had two working pieces. Chapter 2 turns token ids into vectors, and Chapter 3's multi-head attention lets those vectors exchange information. A GPT needs three more things to turn that into a model:
 
 1. **Something to keep the numbers in a stable range** as vectors pass through dozens of layers: *layer normalization*.
