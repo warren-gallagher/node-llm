@@ -103,7 +103,7 @@ Code: [`trainer.ts`](../../packages/core/src/train/trainer.ts) (`trainModel`) ·
 For every batch, `trainModel` does the same four things:
 
 1. **Forward pass with dropout on**: inputs → logits → loss (lesson 1).
-2. **Backpropagation**: compute, for every one of the 163 million weights, how the loss would change if that weight were nudged. This is the weight's *gradient*.
+2. **Backpropagation**: compute, for every one of the 162 million weights, how the loss would change if that weight were nudged. This is the weight's *gradient*.
 3. **Optimizer update**: move each weight a small step in the direction that lowers the loss.
 4. **Weight decay**: shrink every weight very slightly toward zero.
 
@@ -119,7 +119,7 @@ Plain gradient descent moves every weight by `learningRate × gradient`. **Adam*
 
 | Setting | Value |
 | --- | --- |
-| Model | GPT-2 small (163M parameters), context shortened to 256 tokens |
+| Model | GPT-2 small, context shortened to 256 tokens: 162,419,712 parameters (the position table has 256 rows instead of 1,024) |
 | Optimizer | AdamW, learning rate 0.0004, weight decay 0.1 |
 | Batches | 2 sequences × 256 tokens; 9 batches per epoch |
 | Epochs | 10, so 90 optimizer steps in total |
@@ -153,7 +153,7 @@ After each epoch, the lesson prints the model's greedy continuation of "Every ef
 Two things happen at once:
 
 - **The model learns the language of the story.** Its first guesses are the most common tokens: commas and line breaks. Then come common words ("the", "I had been"), then grammatical phrases, and finally whole sentences.
-- **It also starts to memorize.** The epoch-10 sample is a line from the story, word for word. The training loss keeps falling toward 0, but the validation loss stops improving at about 6.2 around step 50, then creeps up. The model is getting better at the text it trains on and no better at text it hasn't seen. This is **overfitting**. It's expected here: 163 million parameters and only about 4,600 training tokens, each seen 10 times.
+- **It also starts to memorize.** The epoch-10 sample is a line from the story, word for word. The training loss keeps falling toward 0, but the validation loss stops improving at about 6.2 around step 50, then creeps up. The model is getting better at the text it trains on and no better at text it hasn't seen. This is **overfitting**. It's expected here: 162 million parameters and only about 4,600 training tokens, each seen 10 times.
 
 On this run the best validation loss came around epoch 6–7. A real training run would keep the weights from that point (see the exercises).
 
@@ -167,7 +167,7 @@ Raschka's book covers these in an appendix. The loop here is deliberately the mi
 
 ### Saving the result
 
-Lesson 2 ends by saving the trained weights to `checkpoints/verdict-124m/`. Git ignores this folder, since the files are large. `weights.bin` holds all 163,009,536 values as raw float32, about 622 MB, and `config.json` records the model configuration and each weight's shape ([`saveCheckpoint`](../../packages/chapters/src/ch05-training/shared.ts)). Lesson 3 loads it back. This plays the role of PyTorch's `torch.save(model.state_dict())` / `load_state_dict`.
+Lesson 2 ends by saving the trained weights to `checkpoints/verdict-124m/`. Git ignores this folder, since the files are large. `weights.bin` holds all 162,419,712 values as raw float32, 649,678,848 bytes (4 bytes each, nothing else), and `config.json` records the model configuration and each weight's shape ([`saveCheckpoint`](../../packages/chapters/src/ch05-training/shared.ts)). Lesson 3 loads it back. This plays the role of PyTorch's `torch.save(model.state_dict())` / `load_state_dict`.
 
 ---
 
@@ -284,6 +284,17 @@ Three details made this work without changes to the model:
 - **Each file block also contains `attn.bias`.** Despite its name, it isn't a weight: it's GPT-2's precomputed causal mask. The loader skips it.
 
 The loader is strict. Every tensor in the file must be used, and every shape must fit, or it stops with an error. The model then reports **124,439,808 parameters** (counting the shared embedding once), which is GPT-2 small's official figure.
+
+**Why the two checkpoint files differ in size.** Lesson 2's `weights.bin` is 650 MB, while GPT-2's `model.safetensors` is 548 MB, even though both describe "124M" models stored as float32:
+
+| | `weights.bin` (lesson 2) | `model.safetensors` (GPT-2) |
+| --- | --- | --- |
+| Layout | Raw values only; names and shapes in a separate `config.json` | 8-byte length + 14 KB JSON header + raw values |
+| Output head | Its own 38,597,376 values | None: reuses the token embedding |
+| Position embedding | 256 rows (lesson 2's shorter context) | 1,024 rows |
+| Q/K/V biases | None | 27,648 values |
+| Other data | None | Twelve 1,024 × 1,024 causal masks (`attn.bias`, 50 MB), which aren't weights |
+| Weight values | 162,419,712 | 124,439,808 |
 
 ### What the pretrained model can do
 
