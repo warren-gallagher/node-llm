@@ -350,9 +350,26 @@ Raschka's repository includes a notebook that converts this GPT architecture to 
 - **State-space and linear-attention layers** (Mamba, Gated DeltaNet) keep a fixed-size state instead of attending to every earlier token. This avoids attention's cost growing with the square of the context length. They mostly appear in **hybrids** that interleave them with ordinary attention layers, for example AI21's Jamba, NVIDIA's Nemotron-H and Qwen3-Next.
 - **Diffusion language models** generate a whole draft and refine it over several steps, rather than producing one token at a time. Examples are Inception's Mercury and Google's experimental Gemini Diffusion.
 
-#### Closed models
+#### Closed models, and where design details are published (as of 2026-10)
 
-OpenAI (GPT-4 onward), Anthropic and Google don't publish their models' architectures. They are widely understood to be transformer-based, and Mixture of Experts is widely reported for several of them, but these details are not confirmed by the vendors.
+OpenAI (GPT-4 onward), Anthropic and Google don't publish their flagship models' architectures. They are widely understood to be transformer-based, and Mixture of Experts is widely reported for several of them, but these details are not confirmed by the vendors.
+
+This changed in 2023. Earlier, the large labs published their main models in detail: Google's Transformer (2017), BERT, T5 and PaLM (2022, with architecture, size, data mixture and compute), and DeepMind's Chinchilla (2022), which set the ratio of training data to model size that most labs followed. OpenAI's GPT-4 technical report (2023) explicitly withheld the architecture, model size, compute, dataset and training method, citing competition and safety. Google's PaLM 2 and Gemini reports followed the same pattern: mostly evaluation results, with few details of how the models were built.
+
+The labs still publish a lot, just less about their flagship models. Google, for example, publishes:
+
+- technical reports for its open-weight Gemma models;
+- research on alternative architectures (Griffin and RecurrentGemma, Infini-attention, Titans);
+- a large share of the papers at NeurIPS and ICML.
+
+Detailed accounts of training large models now come mostly from elsewhere:
+
+- **Chinese labs.** DeepSeek's V3 and R1 papers give the architecture, training cost and reinforcement-learning recipe. Qwen, Moonshot (Kimi K2) and MiniMax publish technical reports.
+- **Meta.** "The Llama 3 Herd of Models" (2024) is a thorough account of training at frontier scale. Llama 4 came with less.
+- **Fully open projects.** They release training data, code and intermediate checkpoints as well as weights: AI2's OLMo, Hugging Face's SmolLM, NVIDIA's Nemotron.
+- **OpenAI's open-weight gpt-oss models (2025).** They were released with a model card describing their architecture.
+
+The architecture is now the least secret part of a model, because open models cover the same design space. What labs keep undisclosed is mainly the training data and its mixture, the post-training recipe (preference data, reinforcement-learning environments, reward design), and the scale and cost of training.
 
 ---
 
