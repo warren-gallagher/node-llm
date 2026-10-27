@@ -1,5 +1,5 @@
 import * as tf from "@tensorflow/tfjs-core";
-import { project } from "./attention/utils";
+import { linearWeight, project } from "./attention/utils";
 import { TransformerBlock } from "./block";
 import { LayerNorm } from "./layers";
 
@@ -71,7 +71,7 @@ export class GptModel {
 
     // Maps each final token vector to one score (logit) per vocabulary entry. No bias, as in
     // the book and GPT-2.
-    this.outHead = tf.variable(tf.mul(tf.randomNormal([embDim, vocabSize]), embDim ** -0.5));
+    this.outHead = tf.variable(linearWeight(embDim, vocabSize));
 
     this.weights = [
       this.tokenEmbedding,

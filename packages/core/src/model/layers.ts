@@ -1,5 +1,5 @@
 import * as tf from "@tensorflow/tfjs-core";
-import { project } from "./attention/utils";
+import { linearWeight, project } from "./attention/utils";
 
 /**
  * Chapter 4, lesson 1: layer normalization.
@@ -74,9 +74,9 @@ export class FeedForward {
 
   constructor(embDim: number) {
     const hidden = 4 * embDim;
-    this.wIn = tf.variable(tf.mul(tf.randomNormal([embDim, hidden]), embDim ** -0.5));
+    this.wIn = tf.variable(linearWeight(embDim, hidden));
     this.bIn = tf.variable(tf.zeros([hidden]));
-    this.wOut = tf.variable(tf.mul(tf.randomNormal([hidden, embDim]), hidden ** -0.5));
+    this.wOut = tf.variable(linearWeight(hidden, embDim));
     this.bOut = tf.variable(tf.zeros([embDim]));
     this.weights = [this.wIn, this.bIn, this.wOut, this.bOut];
   }
