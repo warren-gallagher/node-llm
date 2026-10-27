@@ -9,7 +9,7 @@ These companion chapters fill that gap until the official ones appear. Each one 
 | Chapter | Lessons (as listed on the book's site) | Code | Status |
 | --- | --- | --- | --- |
 | [4 · GPT Model](ch04-gpt.md) | LayerNorm & GELU · Transformer block · Full GPT model | [`packages/core/src/model`](../../packages/core/src/model) · [`ch04-gpt`](../../packages/chapters/src/ch04-gpt) | Reviewed |
-| [5 · Training](ch05-training.md) | Loss & cross-entropy · Training loop · Text generation | [`packages/core/src/train`](../../packages/core/src/train) · [`ch05-training`](../../packages/chapters/src/ch05-training) | Written, awaiting review |
+| [5 · Training](ch05-training.md) | Loss & cross-entropy · Training loop · Text generation · *Extra: loading GPT-2's weights* | [`packages/core/src/train`](../../packages/core/src/train) · [`ch05-training`](../../packages/chapters/src/ch05-training) | Written, awaiting review |
 
 Each chapter's code is runnable on its own:
 
@@ -20,4 +20,5 @@ pnpm --filter @node-llm/chapters ch04:3   # the full 124M-parameter GPT
 pnpm --filter @node-llm/chapters ch05:1   # cross-entropy loss
 pnpm --filter @node-llm/chapters ch05:2   # train GPT-2 small on The Verdict (~10 min)
 pnpm --filter @node-llm/chapters ch05:3   # temperature, top-k, and generating from the trained model
+pnpm --filter @node-llm/chapters ch05:gpt2 # extra: download and run OpenAI's GPT-2 small (~550 MB, once)
 ```
