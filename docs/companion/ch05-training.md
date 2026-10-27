@@ -238,6 +238,90 @@ Greedy decoding repeats the story exactly. Sampling with temperature 1.4 and top
 
 ---
 
+## Extra · Loading OpenAI's GPT-2 weights
+
+Code: [`gpt2.ts`](../../packages/chapters/src/ch05-training/gpt2.ts) · Run: `pnpm --filter @node-llm/chapters ch05:gpt2`
+
+> Not part of the book's lesson outline for this chapter. Raschka's chapter ends this way, and it's the most convincing test that Chapters 2–5 built the right thing.
+
+Lesson 2's model learned from about 4,600 tokens. OpenAI trained GPT-2 on about 40 GB of web text, and then published the weights. Because this repo's `GptModel` has exactly GPT-2's architecture, those weights can be loaded straight into it.
+
+### Getting the weights
+
+The first run downloads `model.safetensors` (548 MB) from [Hugging Face's copy of OpenAI's release](https://huggingface.co/openai-community/gpt2) into `checkpoints/gpt2-124m/`. Git already ignores that folder (`checkpoints/`), as well as any `*.safetensors` file. Later runs reuse the file.
+
+The download is **verified before use**. Hugging Face publishes a SHA-256 hash for every large file. The script fetches that hash from Hugging Face's API, hashes the bytes as they arrive, and refuses the file if the two differ. It's a small example of the supply-chain question every downloaded model raises: *are these the bytes the publisher meant to release?* A hash only shows the file matches what the hosting site lists, not who produced it or how. That's the gap model signing and provenance credentials aim to close.
+
+### The safetensors format
+
+A safetensors file is deliberately simple. It holds only data, never code to run, unlike older Python "pickle" checkpoints:
+
+```
+[8 bytes: header length N] [N bytes: JSON header] [raw tensor bytes]
+```
+
+The JSON header lists each tensor's name, data type (`F32` here), shape, and byte range. [`readSafetensors`](../../packages/chapters/src/ch05-training/gpt2.ts) is about 20 lines.
+
+### Mapping GPT-2's names onto this repo
+
+| GPT-2 tensor (per block `h.{i}`) | Shape | This repo |
+| --- | --- | --- |
+| `wte.weight` | [50257, 768] | token embedding |
+| `wpe.weight` | [1024, 768] | position embedding |
+| `ln_1.weight` / `ln_1.bias` | [768] | first LayerNorm's scale / shift |
+| `attn.c_attn.weight` / `.bias` | [768, 2304] / [2304] | query, key and value, **side by side**: split into three [768, 768] parts |
+| `attn.c_proj.weight` / `.bias` | [768, 768] / [768] | attention output projection (the bias Chapter 4 added) |
+| `ln_2.weight` / `ln_2.bias` | [768] | second LayerNorm |
+| `mlp.c_fc.weight` / `.bias` | [768, 3072] / [3072] | feed-forward expand |
+| `mlp.c_proj.weight` / `.bias` | [3072, 768] / [768] | feed-forward contract |
+| `ln_f.weight` / `ln_f.bias` | [768] | final LayerNorm |
+| (none) | | output head = `wte` transposed ("weight tying", Chapter 4) |
+
+Three details made this work without changes to the model:
+
+- **GPT-2 has Q/K/V biases**, so it's loaded with `qkvBias: true`. The book's training runs leave them out.
+- **GPT-2 stores linear weights as `[dIn, dOut]`**, the same layout this repo uses (Chapter 4). Raschka's PyTorch version has to transpose every one of them.
+- **Each file block also contains `attn.bias`.** Despite its name, it isn't a weight: it's GPT-2's precomputed causal mask. The loader skips it.
+
+The loader is strict. Every tensor in the file must be used, and every shape must fit, or it stops with an error. The model then reports **124,439,808 parameters** (counting the shared embedding once), which is GPT-2 small's official figure.
+
+### What the pretrained model can do
+
+**Loss on *The Verdict*.** Using the same 256-token windows as lessons 1 and 2:
+
+| Model | Training text | Validation text |
+| --- | --- | --- |
+| Untrained | ≈ 10.98 | ≈ 10.98 |
+| Lesson 2 (trained on the story, 10 epochs) | 0.52 | 6.41 |
+| GPT-2 (pretrained on web text) | 3.76 | **3.56** |
+
+Lesson 2's model knows the training part of the story nearly by heart, but GPT-2 is far better at the part neither model trained on. That's the payoff of pre-training on a large, varied corpus: the model learns English in general, not one text.
+
+**Next-token probabilities** show what it learned, and its limits:
+
+```
+"1, 2, 3, 4,"               →  " 5" 87.1%,  " 6" 2.7%,  " 4" 2.4%
+"Every effort moves you"    →  " forward" 17.0%,  " to" 10.3%,  " along" 5.6%
+"The capital of France is"  →  " the" 8.5%,  " now" 4.8%,  " a" 4.6%,  " France" 3.2%,  " Paris" 3.2%
+```
+
+It's confident about simple patterns. It knows "Paris" belongs near "France" but ranks it only fifth. A 124M-parameter model from 2019 stores far less factual knowledge than today's models, which can be hundreds or thousands of times larger and are trained on far more data.
+
+**Generated text** is fluent, though not necessarily true:
+
+```
+greedy:  "In a shocking finding, scientists discovered that the brain of a man who had been diagnosed
+          with schizophrenia had a higher level of dopamine than that of a woman who had not. The
+          findings were published in the journal Nature Neuroscience."
+
+greedy:  "Every effort moves you forward. The first step is to understand the importance of your work.
+          The second step is to understand the importance of your work. The third step is to …"
+```
+
+The first is a plausible-sounding but invented news item. The model has learned what science news *sounds like*, not which findings exist. The second shows greedy decoding's tendency to loop. Sampling with `temperature: 1, topK: 40` (the settings OpenAI used for GPT-2 samples) avoids the loop and gives different text for each seed.
+
+---
+
 ## Differences from Raschka's PyTorch version
 
 | Topic | Raschka (PyTorch) | This repo |
@@ -250,8 +334,6 @@ Greedy decoding repeats the story exactly. Sampling with temperature 1.4 and top
 | Initialization | PyTorch defaults | The same for linear weights (uniform in ±1/√dIn) and embeddings (standard normal); biases start at 0 instead of uniform |
 
 Starting the weights the PyTorch way matters more than it might seem. An earlier version of this repo started linear weights about 1.7 times wider (normal, standard deviation 1/√dIn). On the same lesson 2 run, that gave an untrained loss of 11.38 instead of 10.98, and a training loss of 3.50 instead of about 0.5 after 10 epochs. The model spent several epochs stuck predicting mostly "the" and commas. The shared helper is [`linearWeight`](../../packages/core/src/model/attention/utils.ts).
-
-Raschka's chapter also loads OpenAI's pretrained GPT-2 weights into the model. The book's lesson outline for this chapter doesn't include that, so it isn't here yet. Chapter 4's design was chosen so those weights will fit.
 
 ---
 
