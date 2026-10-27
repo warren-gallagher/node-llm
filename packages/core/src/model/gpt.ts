@@ -19,6 +19,17 @@ export interface GptConfig {
   qkvBias: boolean;
 }
 
+export interface GenerateOptions {
+  /** 0 (default) picks the highest-scoring token; above 0 samples, higher = more random. */
+  temperature?: number;
+  /** Sample only among the k highest-scoring tokens. */
+  topK?: number;
+  /** Stop early when every sequence produces this token (e.g. 50256, `<|endoftext|>`). */
+  eosId?: number;
+  /** Seed for reproducible sampling. */
+  seed?: number;
+}
+
 export const GPT_CONFIG_124M: GptConfig = {
   vocabSize: 50257,
   contextLength: 1024,
@@ -99,9 +110,67 @@ export class GptModel {
     return this.weights.reduce((sum, w) => sum + w.size, 0);
   }
 
-  /** Chapter 5: greedy/temperature text generation. */
-  generate(_tokenIds: tf.Tensor2D, _maxNewTokens: number): tf.Tensor2D {
-    throw new Error("TODO(ch05): implement generation loop");
+  /**
+   * Chapter 5, lesson 3: text generation.
+   *
+   * Repeats `maxNewTokens` times: run the model on the last `contextLength` tokens, take the
+   * logits at the final position, choose one token from them, and append it. With
+   * `temperature` 0 (the default) the choice is greedy: always the highest-scoring token.
+   *
+   * tokenIds: [batch, seqLen] -> [batch, seqLen + generated]
+   */
+  generate(
+    tokenIds: tf.Tensor2D,
+    maxNewTokens: number,
+    options: GenerateOptions = {},
+  ): tf.Tensor2D {
+    const { temperature = 0, topK, eosId, seed } = options;
+    let ids = tf.clone(tokenIds);
+
+    for (let step = 0; step < maxNewTokens; step++) {
+      const stepSeed = seed === undefined ? undefined : seed + step;
+      const next = tf.tidy(() => this.nextToken(ids, temperature, topK, stepSeed));
+
+      // Stop before appending once every sequence in the batch produced the end token.
+      if (eosId !== undefined && next.dataSync().every((id) => id === eosId)) {
+        next.dispose();
+        break;
+      }
+
+      const longer = tf.concat([ids, next], 1);
+      tf.dispose([ids, next]);
+      ids = longer;
+    }
+    return ids;
+  }
+
+  /** Picks one next token per sequence: [batch, seqLen] -> [batch, 1] (int32). */
+  private nextToken(
+    ids: tf.Tensor2D,
+    temperature: number,
+    topK: number | undefined,
+    seed: number | undefined,
+  ): tf.Tensor2D {
+    // Crop to the context window; older tokens fall out of view.
+    const seqLen = ids.shape[1];
+    const start = Math.max(0, seqLen - this.config.contextLength);
+    const context = tf.slice(ids, [0, start], [-1, seqLen - start]);
+
+    // Only the last position's logits predict the next token: [batch, vocabSize].
+    const logits = this.forward(context);
+    let last = tf.squeeze(tf.slice(logits, [0, seqLen - start - 1, 0], [-1, 1, -1]), [1]);
+
+    if (topK !== undefined) {
+      // Keep the k highest logits; the rest get -Infinity, which softmax turns into 0.
+      const kth = tf.slice(tf.topk(last, topK).values, [0, topK - 1], [-1, 1]);
+      last = tf.where(tf.less(last, kth), tf.fill(last.shape, Number.NEGATIVE_INFINITY), last);
+    }
+
+    if (temperature > 0) {
+      // Dividing by the temperature sharpens (< 1) or flattens (> 1) the distribution.
+      return tf.multinomial(tf.div(last, temperature) as tf.Tensor2D, 1, seed) as tf.Tensor2D;
+    }
+    return tf.expandDims(tf.argMax(last, -1), 1) as tf.Tensor2D;
   }
 
   dispose(): void {
