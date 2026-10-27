@@ -15,10 +15,6 @@ function main(): void {
   const norm = new LayerNorm(5);
   const y = norm.forward(x);
 
-  const stats = (t: tf.Tensor) => {
-    const { mean, variance } = tf.moments(t, -1);
-    return { mean: round(mean), variance: round(variance) };
-  };
   console.log("before LayerNorm:", stats(x));
   console.log("after LayerNorm: ", stats(y));
 
@@ -40,6 +36,12 @@ function main(): void {
   tf.dispose([x, y, t, tokens, out]);
   norm.dispose();
   ff.dispose();
+}
+
+/** Per-vector mean and variance over the last axis, rounded for printing. */
+function stats(t: tf.Tensor): { mean: number[]; variance: number[] } {
+  const { mean, variance } = tf.moments(t, -1);
+  return { mean: round(mean), variance: round(variance) };
 }
 
 function round(t: tf.Tensor): number[] {
