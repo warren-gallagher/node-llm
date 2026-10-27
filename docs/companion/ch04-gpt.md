@@ -235,11 +235,11 @@ At 4 bytes per `float32` value, the weights alone take 621.83 MB. Training needs
 | --- | --- | --- |
 | Train vs. evaluate | `model.train()` / `model.eval()` | `forward(x, training)` flag, `false` by default |
 | Linear weights | `[dOut, dIn]`, computed as `x · Wᵀ` | `[dIn, dOut]`, computed as `x · W` (matches GPT-2's published weights) |
-| Weight initialization | PyTorch defaults (Kaiming-uniform for `nn.Linear`, standard normal for `nn.Embedding`) | Normal with standard deviation 1/√dIn for linear layers, standard normal for embeddings |
+| Weight initialization | PyTorch defaults: uniform in ±1/√dIn for `nn.Linear` weights and biases, standard normal for `nn.Embedding` | The same for weights and embeddings; biases start at 0 |
 | Gradients | `loss.backward()` | `tf.variableGrads` / `optimizer.minimize`; the chapters get gradient functions from `@tensorflow/tfjs-node` |
 | Memory | Automatic | `tf.tidy` around each forward pass, `dispose()` for weights |
 
-The different initialization only affects the random starting point, not the architecture. The parameter counts and shapes are identical to the book's.
+The parameter counts and shapes are identical to the book's. Matching PyTorch's initialization matters for training: [Chapter 5](ch05-training.md#differences-from-raschkas-pytorch-version) shows what happens with a wider start.
 
 ---
 
