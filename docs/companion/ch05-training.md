@@ -199,17 +199,44 @@ The default (`temperature: 0`) always picks the highest-scoring token. It's dete
 
 ### Temperature
 
-To get variety, the model *samples* from the probabilities instead of always taking the top one. **Temperature** controls how adventurous the sampling is. The logits are divided by the temperature before softmax ([`gpt.ts:169-172`](../../packages/core/src/model/gpt.ts#L169-L172)). The first part of the lesson shows the effect on a made-up five-word vocabulary for the next word after "The cat sat on the":
+To get variety, the model *samples* from the probabilities instead of always taking the top one. **Temperature** controls how adventurous the sampling is. The logits are divided by the temperature before softmax ([`gpt.ts:169-172`](../../packages/core/src/model/gpt.ts#L169-L172)).
 
-| Word | T = 0.5 | T = 1 | T = 2 |
-| --- | --- | --- | --- |
-| mat | 0.816 | 0.611 | 0.432 |
-| sofa | 0.165 | 0.275 | 0.290 |
-| roof | 0.018 | 0.091 | 0.167 |
-| moon | 0.001 | 0.018 | 0.075 |
-| banana | 0.000 | 0.004 | 0.035 |
+Temperature *controls* randomness; it doesn't add any. Three separate steps are involved:
 
-A temperature below 1 sharpens the distribution toward the favorite, and as it approaches 0, sampling becomes greedy. A temperature above 1 flattens it, so unlikely words like "banana" get picked more often. The lesson also draws 1,000 samples at each temperature, and the counts match these probabilities closely.
+1. **The model** computes logits. This is deterministic: the same input and weights always give the same logits.
+2. **Temperature** reshapes them: divide by `T`, then softmax. Still nothing random.
+3. **Sampling** (`tf.multinomial`) draws one token from the resulting probabilities. This is the only random step, and `seed` makes it repeatable.
+
+At `temperature: 0`, `generate` skips sampling and takes the top token, so there's no randomness at all.
+
+The first part of the lesson shows the effect on a made-up five-word vocabulary for the next word after "The cat sat on the". The usual measure of randomness is **entropy**; 2^entropy is roughly how many equally likely options the distribution behaves like:
+
+| Temperature | mat | sofa | roof | moon | banana | Entropy (bits) | ≈ Effective choices |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 (greedy) | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| 0.25 | 0.960 | 0.039 | 0.000 | 0.000 | 0.000 | 0.24 | 1.2 |
+| 0.5 | 0.816 | 0.165 | 0.018 | 0.001 | 0.000 | 0.78 | 1.7 |
+| 1 | 0.611 | 0.275 | 0.091 | 0.018 | 0.004 | 1.40 | 2.6 |
+| 2 | 0.432 | 0.290 | 0.167 | 0.075 | 0.035 | 1.92 | 3.8 |
+| 5 | 0.294 | 0.251 | 0.201 | 0.146 | 0.108 | 2.24 | 4.7 |
+| 100 | 0.204 | 0.203 | 0.201 | 0.197 | 0.195 | 2.32 | 5.0 |
+
+The lesson prints the 0.5, 1 and 2 rows, and also draws 1,000 samples at each, which land close to these probabilities. A few properties follow from "divide the logits by T":
+
+- **The ranking never changes.** Dividing by a positive number preserves order, so "mat" is the favorite at every temperature. Temperature changes *how strongly* it's preferred, not *which* token is.
+- **T = 1 is the model's own distribution**, the one training produced. Below 1 exaggerates its preferences, and as T approaches 0, sampling becomes greedy. Above 1 flattens them, toward picking uniformly among every token: 5 here, but all 50,257 for a real model, which is why very high temperatures produce nonsense unless top-k limits the choices.
+- **No token is ruled out.** At any temperature above 0, every token keeps some probability. Only a cutoff such as top-k removes options.
+- **The name comes from physics.** In the Boltzmann distribution, p ∝ exp(−energy / kT), a cold system almost always sits in its lowest-energy state, while a hot one spreads across all states. Logits play the role of negative energy.
+
+**Why it's a setting.** Different jobs want different trade-offs between reliability and variety:
+
+| Use | Typical temperature | Why |
+| --- | --- | --- |
+| Code, data extraction, factual answers | 0–0.3 | There's usually one right answer; less likely tokens are more likely to be mistakes. Low temperature also makes results repeatable. |
+| Chat, explanations | about 0.7–1.0 | Natural-sounding text with some variety, while staying close to the model's preferences. |
+| Brainstorming, fiction | about 1.0–1.2, usually with top-k or a similar cutoff | More variety and surprise; the cutoff keeps the extra randomness among sensible tokens. |
+
+Above about 1.2, text tends to lose coherence. The `temperature` setting in model APIs is this same operation.
 
 ### Top-k sampling
 
