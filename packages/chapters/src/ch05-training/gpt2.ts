@@ -99,8 +99,10 @@ export function readSafetensors(path: string): Map<string, SafeTensor> {
  *
  * GPT-2 stores its linear weights as [dIn, dOut], the same layout as this repo, so nothing
  * needs transposing except the tied output head.
+ *
+ * `overrides` changes settings that don't affect the weights' shapes, such as `dropout`.
  */
-export function loadGpt2(path: string): GptModel {
+export function loadGpt2(path: string, overrides: Partial<GptConfig> = {}): GptModel {
   const tensors = readSafetensors(path);
   const used = new Set<string>();
 
@@ -115,10 +117,11 @@ export function loadGpt2(path: string): GptModel {
     return tf.tensor(t.data, t.shape);
   }
 
-  const model = new GptModel(GPT2_CONFIG);
+  const config = { ...GPT2_CONFIG, ...overrides };
+  const model = new GptModel(config);
   const values: tf.Tensor[] = [tensor("wte.weight"), tensor("wpe.weight")];
 
-  for (let i = 0; i < GPT2_CONFIG.numLayers; i++) {
+  for (let i = 0; i < config.numLayers; i++) {
     const h = `h.${i}`;
     const [wQuery, wKey, wValue] = tf.split(tensor(`${h}.attn.c_attn.weight`), 3, 1);
     const [bQuery, bKey, bValue] = tf.split(tensor(`${h}.attn.c_attn.bias`), 3, 0);

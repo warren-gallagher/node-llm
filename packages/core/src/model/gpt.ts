@@ -45,8 +45,9 @@ export class GptModel {
 
   private readonly tokenEmbedding: tf.Variable;
   private readonly positionEmbedding: tf.Variable;
-  private readonly blocks: TransformerBlock[];
-  private readonly finalNorm: LayerNorm;
+  /** Public so chapter 6 can unfreeze the last block and the final LayerNorm. */
+  readonly blocks: TransformerBlock[];
+  readonly finalNorm: LayerNorm;
   private readonly outHead: tf.Variable;
 
   constructor(readonly config: GptConfig) {
@@ -84,6 +85,18 @@ export class GptModel {
 
   /** tokenIds: [batch, seqLen] -> logits [batch, seqLen, vocabSize] */
   forward(tokenIds: tf.Tensor2D, training = false): tf.Tensor3D {
+    return tf.tidy(() =>
+      project(this.hiddenStates(tokenIds, training), this.outHead as tf.Tensor2D),
+    );
+  }
+
+  /**
+   * Everything except the output head: each token's final vector after the last block and
+   * the final LayerNorm. Chapter 6 puts a different head on top of these.
+   *
+   * tokenIds: [batch, seqLen] -> [batch, seqLen, embDim]
+   */
+  hiddenStates(tokenIds: tf.Tensor2D, training = false): tf.Tensor3D {
     return tf.tidy(() => {
       const seqLen = tokenIds.shape[1];
       if (seqLen > this.config.contextLength) {
@@ -101,7 +114,7 @@ export class GptModel {
 
       for (const block of this.blocks) x = block.forward(x, training);
 
-      return project(this.finalNorm.forward(x), this.outHead as tf.Tensor2D);
+      return this.finalNorm.forward(x);
     });
   }
 
