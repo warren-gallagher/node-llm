@@ -24,6 +24,13 @@
     "ch05:3": "tsx src/ch05-training/03-generation.ts",
     "ch05:gpt2": "tsx src/ch05-training/04-pretrained-gpt2.ts",
     "ch05:train": "tsx src/ch05-training/train.ts",
+    "ch06:1": "tsx src/ch06-classification/01-dataset.ts",
+    "ch06:2": "tsx src/ch06-classification/02-data-loaders.ts",
+    "ch06:3": "tsx src/ch06-classification/03-pretrained-model.ts",
+    "ch06:4": "tsx src/ch06-classification/04-classification-head.ts",
+    "ch06:5": "tsx src/ch06-classification/05-loss-accuracy.ts",
+    "ch06:6": "tsx src/ch06-classification/06-fine-tuning.ts",
+    "ch06:7": "tsx src/ch06-classification/07-classify.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

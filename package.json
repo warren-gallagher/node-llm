@@ -17,6 +17,7 @@
     "ch03": "pnpm --filter @node-llm/chapters ch03",
     "ch04": "pnpm --filter @node-llm/chapters ch04",
     "ch05:train": "pnpm --filter @node-llm/chapters ch05:train",
+    "ch06:train": "pnpm --filter @node-llm/chapters ch06:6",
     "playground": "pnpm --filter @node-llm/playground dev"
   },
   "devDependencies": {
