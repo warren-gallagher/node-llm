@@ -260,6 +260,22 @@ The two runs agree to within about two points, which is as close as two runs can
 
 The time difference is the hardware. TensorFlow.js in Node runs on the CPU only; PyTorch on a Mac can use the GPU.
 
+### What fine-tuning changed, and what it didn't
+
+| Part | Parameters | What happened to it | What sets its size |
+| --- | --- | --- | --- |
+| Token embedding | 38,597,376 (50,257 × 768) | Frozen at GPT-2's values | Vocabulary size × embedding width |
+| Position embedding | 786,432 (1,024 × 768) | Frozen | Context length × embedding width |
+| Transformer blocks 1–11 | 77,966,592 (11 × 7,087,872) | Frozen | GPT-2's architecture |
+| Transformer block 12 | 7,087,872 | **Fine-tuned**: started from GPT-2's values and adjusted | GPT-2's architecture |
+| Final LayerNorm | 1,536 | **Fine-tuned** | Embedding width (a scale and a shift per value) |
+| GPT-2's output head | 38,597,376 (768 × 50,257) | **Removed**: no longer used | Embedding width × vocabulary size |
+| New classification head | 1,538 (768 × 2 + 2) | **Added**, from random values, and trained | Embedding width × number of classes |
+
+The objective changed too: from predicting the next token at every position to predicting one label from the last position.
+
+No part's size depends on the training data. The architecture fixes the size of every pretrained part, and the number of classes fixes the new head's. What the amount of data informs is a choice made before training: how many of the existing parts to unfreeze. With 1,045 examples, the book unfreezes only the top. Updating more weights from little data risks memorizing the examples, but as Raschka's experiments in lesson 4 show, the best amount is found by trying.
+
 ### Saving only what changed
 
 Raschka saves the whole model, about 500 MB. This repo saves only the weights fine-tuning changed: the last block, the final LayerNorm and the new head. That's 7,090,946 values in 28 MB, written to `checkpoints/spam-classifier/trainable.bin`.
