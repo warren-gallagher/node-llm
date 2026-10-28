@@ -18,6 +18,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
 - [Chapter 4: The GPT model](#chapter-4-the-gpt-model)
   - [Are modern LLMs still built this way?](#are-modern-llms-still-built-this-way)
 - [Chapter 5: Training](#chapter-5-training)
+  - [Where is "predict the next token" actually written down?](#where-is-predict-the-next-token-actually-written-down)
   - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
 - [General](#general)
   - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
@@ -374,6 +375,62 @@ The architecture is now the least secret part of a model, because open models co
 ---
 
 ## Chapter 5: Training
+
+### Where is "predict the next token" actually written down?
+
+**Context:** Chapter 5 trains the model with [`trainModel`](../packages/core/src/train/trainer.ts) on samples built by [`dataset.ts`](../packages/core/src/data/dataset.ts). Nothing in [`gpt.ts`](../packages/core/src/model/gpt.ts) mentions "next", yet the trained model predicts the next token.
+
+**Short answer:** The objective is not part of the architecture and is not stated as a rule. It exists in two places: **the training targets**, which are the input shifted by one token, and **the loss function**, which scores the model's output against those targets. The architecture contributes one thing, the causal mask, which stops the model from solving the task by looking ahead.
+
+```mermaid
+flowchart LR
+  T["Token ids<br/>Every effort moves you forward"] --> I["input<br/>Every effort moves you"]
+  T --> G["target (shifted by one)<br/>effort moves you forward"]
+  I --> M["GPT model<br/>(causal mask: no looking ahead)"]
+  M --> L["logits<br/>50,257 scores per position"]
+  L --> C["cross-entropy loss"]
+  G --> C
+  C -- "gradients adjust every weight" --> M
+```
+
+#### 1. The data: targets are the input shifted by one
+
+[`dataset.ts:30-31`](../packages/core/src/data/dataset.ts#L30-L31) cuts the token stream into windows. Each window is an input, and the same window moved one token later is its target:
+
+```text
+input:   Every   effort  moves  you
+target:  effort  moves   you    forward
+```
+
+At every position, the correct answer is the token that follows. That one-token offset is the whole definition of the task.
+
+#### 2. The loss: score the output against the target
+
+The model outputs `vocabSize` scores (logits) at every position. Cross-entropy (`crossEntropyLoss` in [`trainer.ts`](../packages/core/src/train/trainer.ts), which the book's Chapter 5 completes with `softmaxCrossEntropy`) turns them into probabilities and measures how little probability went to the target token. Training adjusts every weight to make that probability higher.
+
+The model has no built-in idea of "next". Its output at position *t* is only a vector of scores. It comes to mean "the token at *t* + 1" because, across all of training, that output was always compared with the token at *t* + 1.
+
+#### 3. The structure: the causal mask makes it a real task
+
+The causal mask ([`utils.ts:37-38`](../packages/core/src/model/attention/utils.ts#L37-L38)) stops each position from attending to later ones. Without it, the model could attend to position *t* + 1 and copy it: the loss would fall to nearly zero and nothing useful would be learned. The mask doesn't define the objective, but the objective would be meaningless without it.
+
+Generation depends on the objective too. The generation loop reads the scores at the **last** position, picks a token, appends it and repeats. That produces sensible text only because training gave the last position's output the meaning "what comes next".
+
+#### Same blocks, different objectives
+
+Change the targets, the mask or the loss, and the same kind of transformer learns a different task:
+
+| Objective | What the targets are | Mask | Example |
+| --- | --- | --- | --- |
+| Next-token prediction | The input shifted by one | Causal | GPT, Llama |
+| Masked-token prediction | The roughly 15% of tokens hidden in the input | None (sees both directions) | BERT |
+| Classification | One label per text, predicted by a small new output head | Causal | Raschka, chapter 6 (spam detection) |
+| Instruction tuning (SFT) | The next token, with the loss counted only on the response, not the prompt | Causal | Raschka, chapter 7 |
+| Preference tuning and reinforcement learning | No fixed target: a preferred and a rejected answer, or a reward score | Causal | RLHF, DPO, reasoning models |
+
+Setting `target = input` (no shift) would train the same model to copy its input.
+
+Because the objective lives in the training code and data preparation, it leaves no label in the weights file. Two models with the same architecture and file format can have been trained for quite different purposes. Only documentation of how they were trained says which.
 
 ### Is GPT-2's training data available, and could this repo train on it?
 
