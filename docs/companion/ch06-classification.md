@@ -315,6 +315,41 @@ The classifier's output is always one of the two labels, with no way to say "uns
 
 ---
 
+## Is this how you'd build a spam filter?
+
+Usually not. The chapter is best read as a method for repurposing a pretrained model, with spam as a task simple enough to check. For spam itself, the method is more than the problem needs.
+
+### Simpler models do as well here
+
+Classic text classifiers, such as naive Bayes or logistic regression over word counts, are commonly reported at about 97–98% accuracy on the SMS Spam Collection (not measured in this repo). That's as good as the fine-tuned GPT-2's 96.33%. They train in seconds and classify a message in microseconds, where GPT-2 runs 124 million parameters per message. Spam is mostly recognizable from surface features ("FREE", "txt", phone numbers, prices, links), which word counts capture well.
+
+A real filter also faces things the chapter leaves out:
+
+- **Real traffic isn't balanced.** Most messages are ham, so the decision threshold would be tuned for the real spam rate.
+- **Errors cost different amounts.** Blocking a real message and letting a scam through are rarely equally bad, and the threshold reflects which matters more.
+- **Spam changes.** The filter needs retraining on recent messages.
+
+### Other ways to use a transformer for classification
+
+| Approach | How it works | Trade-off |
+| --- | --- | --- |
+| Fine-tune an **encoder** model (BERT, RoBERTa, DeBERTa, ModernBERT) | The same idea as this chapter, but attention runs in both directions, so every token sees the whole text | The usual choice for transformer classifiers; typically smaller than decoder LLMs of similar quality on such tasks |
+| **Embeddings + a simple classifier** | An embedding model turns each text into one vector; logistic regression is trained on the vectors | Cheap and strong; the transformer isn't trained at all |
+| **Prompt an instruction-tuned LLM** | Ask "Is this spam? Answer yes or no." | No labelled data or training needed, but slow and costly per message, and less consistent than a trained classifier |
+| **Fine-tune a decoder LLM** (this chapter) | Replace the head, read the last token, train the top | Worth it when the judgement needs broad language understanding |
+
+Raschka's repository compares several of these on movie-review sentiment ([`ch06/03_bonus_imdb-classification`](https://github.com/rasbt/LLMs-from-scratch/tree/main/ch06/03_bonus_imdb-classification)).
+
+### Where this technique is standard
+
+Putting a small head on a pretrained decoder LLM and fine-tuning it is widely used when the judgement needs context and nuance rather than keywords:
+
+- **Reward models**, used in reinforcement learning from human feedback (RLHF), are almost exactly this chapter's architecture. A pretrained LLM gets a head with one output, the score is read at the last token, and the model is fine-tuned on pairs of responses that people ranked. That score then guides the training of the assistant model.
+- **Safety and content-policy classifiers**, which have to tell, for example, a question about a dangerous topic from a request for help with it.
+- **Specialized classification with little labelled data**, where the pretrained model's knowledge does most of the work. Larger models are usually adapted with LoRA (Raschka's Appendix E) rather than by unfreezing whole blocks.
+
+---
+
 ## Differences from Raschka's PyTorch version
 
 | Topic | Raschka (PyTorch) | This repo |
