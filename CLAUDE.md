@@ -40,6 +40,8 @@ How to write entries:
 The book publishes chapters as they're written, and the repo's code for unpublished chapters is `TODO` stubs. The `companion` branch fills those in with unofficial code and text ([docs/companion/](docs/companion/README.md)). Claude writes each chapter; the user reviews it before the next one starts.
 
 - Implement the author's stubs in place and keep their interfaces, so the result can be compared with the author's version or dropped. Follow the lesson outline the book's site lists for the chapter, with one lesson script per lesson.
+- Chapters with no stubs and no outline on the book's site (Chapter 6 onward) follow the sections of Raschka's matching chapter, with one lesson script per section, in a new `packages/chapters/src/chNN-*` folder. Add to the existing code rather than reshaping it.
+- Run the chapters with the Node version in `.nvmrc` (22). `tfjs-node` calls `util.isNullOrUndefined`, which Node 26 removed.
 - Write the text in its own words, marked unofficial. Don't imitate the author's voice or reproduce Raschka's text; link to the book where it covers a topic.
 - Check results against the figures in Raschka's book (parameter counts, shapes, sizes), and add tests for each component.
 - Keep each chapter in its own commits: code and tests first, then the text.
