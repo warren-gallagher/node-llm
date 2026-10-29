@@ -1,5 +1,5 @@
 import * as tf from "@tensorflow/tfjs-core";
-import type { DataLoader } from "../data/dataLoader";
+import type { ArrayBatch } from "../data/dataLoader";
 import type { GptModel } from "../model/gpt";
 
 /**
@@ -14,6 +14,9 @@ import type { GptModel } from "../model/gpt";
  * Gradient functions must be registered by the caller's tfjs package: `@tensorflow/tfjs-node`
  * and `@tensorflow/tfjs` do this; plain `tfjs-core` needs
  * `import "@tensorflow/tfjs-core/dist/register_all_gradients"`.
+ *
+ * Any iterable of `{ inputs, targets }` batches works as a loader: chapter 2's `DataLoader`,
+ * or chapter 7's `InstructionLoader`, whose batches vary in length.
  */
 export interface TrainConfig {
   epochs: number;
@@ -23,7 +26,7 @@ export interface TrainConfig {
   /** Batches averaged per evaluation (from the start of each loader). Defaults to all. */
   evalBatches?: number;
   /** Data for the validation loss. Without it, only the training loss is evaluated. */
-  valLoader?: DataLoader;
+  valLoader?: Iterable<ArrayBatch>;
   /**
    * Decoupled weight decay, as in PyTorch's `AdamW`: after each step every weight shrinks by
    * `learningRate * weightDecay` of itself. Defaults to 0 (plain Adam).
@@ -44,7 +47,11 @@ export interface EvalPoint {
   valLoss: number;
 }
 
-export function trainModel(model: GptModel, loader: DataLoader, config: TrainConfig): EvalPoint[] {
+export function trainModel(
+  model: GptModel,
+  loader: Iterable<ArrayBatch>,
+  config: TrainConfig,
+): EvalPoint[] {
   const optimizer = tf.train.adam(config.learningRate);
   const decay = 1 - config.learningRate * (config.weightDecay ?? 0);
   const history: EvalPoint[] = [];
@@ -101,7 +108,13 @@ export function trainModel(model: GptModel, loader: DataLoader, config: TrainCon
  * over all `batch * seqLen` predictions, of -log(probability of the correct token).
  *
  * Book analog: `torch.nn.functional.cross_entropy(logits.flatten(0, 1), targets.flatten())`.
+ *
+ * Chapter 7: a target of `IGNORE_INDEX` (-100) marks a position to leave out, as PyTorch's
+ * `ignore_index` does. Those positions get weight 0, and the average is taken over the rest.
  */
+/** Target id the loss skips, matching PyTorch's default `ignore_index`. */
+export const IGNORE_INDEX = -100;
+
 export function crossEntropyLoss(
   model: GptModel,
   inputs: tf.Tensor2D,
@@ -115,9 +128,13 @@ export function crossEntropyLoss(
     // Flatten batch and sequence into one axis of independent predictions.
     const flatLogits = tf.reshape(logits, [-1, vocabSize]) as tf.Tensor2D;
     const flatTargets = tf.reshape(targets, [-1]) as tf.Tensor1D;
+    // Weight 1 for real targets, 0 for ignored ones. With weights, softmaxCrossEntropy
+    // divides by the number of nonzero weights, so ignored positions don't dilute the mean.
+    const keep = tf.cast(tf.greaterEqual(flatTargets, 0), "float32");
     return tf.losses.softmaxCrossEntropy(
-      tf.oneHot(flatTargets, vocabSize),
+      tf.oneHot(tf.maximum(flatTargets, tf.scalar(0, "int32")), vocabSize),
       flatLogits,
+      keep,
     ) as tf.Scalar;
   });
 }
@@ -126,7 +143,11 @@ export function crossEntropyLoss(
  * Chapter 5, lesson 1: average loss over a loader's batches, without training (no dropout,
  * no weight updates). Book analog: `calc_loss_loader`.
  */
-export function evaluateLoss(model: GptModel, loader: DataLoader, maxBatches?: number): number {
+export function evaluateLoss(
+  model: GptModel,
+  loader: Iterable<ArrayBatch>,
+  maxBatches?: number,
+): number {
   let total = 0;
   let count = 0;
   for (const batch of loader) {

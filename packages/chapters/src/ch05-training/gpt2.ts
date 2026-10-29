@@ -6,7 +6,8 @@ import { GPT_CONFIG_124M, type GptConfig, GptModel } from "@node-llm/core";
 import * as tf from "@tensorflow/tfjs-node";
 
 /**
- * Downloading OpenAI's pretrained GPT-2 small weights and loading them into `GptModel`.
+ * Downloading OpenAI's pretrained GPT-2 weights and loading them into `GptModel`. Chapters 5
+ * and 6 use GPT-2 small (124M); chapter 7 can also use GPT-2 medium (355M).
  *
  * The weights come from Hugging Face's copy of OpenAI's release, in the safetensors format:
  * an 8-byte header length, a JSON header naming each tensor's dtype, shape and byte range,
@@ -16,26 +17,37 @@ import * as tf from "@tensorflow/tfjs-node";
 /** GPT-2 small: the book's 124M configuration, plus the Q/K/V biases GPT-2 was trained with. */
 export const GPT2_CONFIG: GptConfig = { ...GPT_CONFIG_124M, qkvBias: true };
 
-const REPO = "openai-community/gpt2";
+/** GPT-2 sizes this repo can load, with the Hugging Face repository for each. */
+export const GPT2_MODELS = {
+  "124m": { repo: "openai-community/gpt2", download: "about 550 MB" },
+  "355m": { repo: "openai-community/gpt2-medium", download: "about 1.5 GB" },
+} as const;
+export type Gpt2Size = keyof typeof GPT2_MODELS;
+
 const FILE = "model.safetensors";
-const DIR = new URL("../../../../checkpoints/gpt2-124m/", import.meta.url);
-const PATH = new URL(FILE, DIR);
+const CHECKPOINTS = new URL("../../../../checkpoints/", import.meta.url);
 
 interface SafeTensor {
   shape: number[];
   data: Float32Array;
 }
 
-/** Downloads the weights once (about 550 MB) and verifies them; later calls reuse the file. */
-export async function ensureGpt2Weights(): Promise<string> {
-  if (existsSync(PATH)) return PATH.pathname;
+/**
+ * Downloads one size's weights once into `checkpoints/gpt2-<size>/` and verifies them; later
+ * calls reuse the file.
+ */
+export async function ensureGpt2Weights(size: Gpt2Size = "124m"): Promise<string> {
+  const { repo, download } = GPT2_MODELS[size];
+  const dir = new URL(`gpt2-${size}/`, CHECKPOINTS);
+  const path = new URL(FILE, dir);
+  if (existsSync(path)) return path.pathname;
 
-  const expected = await publishedSha256();
-  mkdirSync(DIR, { recursive: true });
-  const partial = new URL(`${FILE}.partial`, DIR);
+  const expected = await publishedSha256(repo);
+  mkdirSync(dir, { recursive: true });
+  const partial = new URL(`${FILE}.partial`, dir);
 
-  console.log(`downloading ${REPO}/${FILE} (about 550 MB)...`);
-  const response = await fetch(`https://huggingface.co/${REPO}/resolve/main/${FILE}`);
+  console.log(`downloading ${repo}/${FILE} (${download})...`);
+  const response = await fetch(`https://huggingface.co/${repo}/resolve/main/${FILE}`);
   if (!response.ok || !response.body) {
     throw new Error(`download failed: HTTP ${response.status}`);
   }
@@ -48,14 +60,14 @@ export async function ensureGpt2Weights(): Promise<string> {
   if (actual !== expected) {
     throw new Error(`SHA-256 mismatch: expected ${expected}, got ${actual}`);
   }
-  renameSync(partial, PATH);
+  renameSync(partial, path);
   console.log(`verified SHA-256 ${actual}`);
-  return PATH.pathname;
+  return path.pathname;
 }
 
 /** The SHA-256 Hugging Face lists for the file (its Git LFS object id). */
-async function publishedSha256(): Promise<string> {
-  const response = await fetch(`https://huggingface.co/api/models/${REPO}/tree/main`);
+async function publishedSha256(repo: string): Promise<string> {
+  const response = await fetch(`https://huggingface.co/api/models/${repo}/tree/main`);
   const files = (await response.json()) as { path: string; lfs?: { oid: string } }[];
   const oid = files.find((f) => f.path === FILE)?.lfs?.oid;
   if (!oid) throw new Error(`no published SHA-256 for ${FILE}`);
@@ -100,10 +112,17 @@ export function readSafetensors(path: string): Map<string, SafeTensor> {
  * GPT-2 stores its linear weights as [dIn, dOut], the same layout as this repo, so nothing
  * needs transposing except the tied output head.
  *
- * `overrides` changes settings that don't affect the weights' shapes, such as `dropout`.
+ * The embedding size and the number of blocks are read from the file, so this loads any
+ * GPT-2 size. Every GPT-2 size uses 64 dimensions per attention head, which gives the number
+ * of heads. `overrides` changes settings that don't affect the weights' shapes, such as
+ * `dropout`.
  */
 export function loadGpt2(path: string, overrides: Partial<GptConfig> = {}): GptModel {
   const tensors = readSafetensors(path);
+  const embDim = tensors.get("wte.weight")?.shape[1] ?? GPT2_CONFIG.embDim;
+  const numLayers = new Set(
+    [...tensors.keys()].map((n) => n.match(/^h\.(\d+)\./)?.[1]).filter(Boolean),
+  ).size;
   const used = new Set<string>();
 
   function get(name: string): SafeTensor {
@@ -117,7 +136,7 @@ export function loadGpt2(path: string, overrides: Partial<GptConfig> = {}): GptM
     return tf.tensor(t.data, t.shape);
   }
 
-  const config = { ...GPT2_CONFIG, ...overrides };
+  const config = { ...GPT2_CONFIG, embDim, numLayers, numHeads: embDim / 64, ...overrides };
   const model = new GptModel(config);
   const values: tf.Tensor[] = [tensor("wte.weight"), tensor("wpe.weight")];
 
