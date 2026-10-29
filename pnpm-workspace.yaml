@@ -5,3 +5,7 @@ allowBuilds:
   '@tensorflow/tfjs-node': true
   core-js: true
   esbuild: true
+  # Not needed on macOS: onnxruntime-node ships its binaries, and its install script only
+  # downloads GPU libraries on Linux. protobufjs's script only prints a notice.
+  onnxruntime-node: false
+  protobufjs: false
