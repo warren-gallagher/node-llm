@@ -38,10 +38,12 @@
     "ch07:5": "tsx src/ch07-instruction/05-fine-tuning.ts",
     "ch07:6": "tsx src/ch07-instruction/06-responses.ts",
     "ch07:7": "tsx src/ch07-instruction/07-evaluate.ts",
+    "ch07:rag": "tsx src/ch07-instruction/08-rag.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.1",
     "@node-llm/core": "workspace:*",
     "@tensorflow/tfjs-node": "^4.22.0",
     "gpt-tokenizer": "^3.4.0"

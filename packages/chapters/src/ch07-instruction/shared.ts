@@ -127,9 +127,19 @@ export function loadFineTuned(size: Gpt2Size): GptModel | undefined {
  * The model continues the prompt, so its output starts with the `### Response:` heading it
  * learned to write. Only the text after the prompt is kept, without that heading. Book analog:
  * `generate(...)` followed by `generated_text[len(input_text):].replace("### Response:", "")`.
+ *
+ * With `startResponse`, the prompt itself ends with the `### Response:` heading, so the model
+ * must begin an answer. The RAG lesson needs this: given an input that reads like a finished
+ * answer, GPT-2 124M otherwise often ends the example at once.
  */
-export function respond(model: GptModel, entry: InstructionEntry, maxNewTokens = 256): string {
-  const prompt = encode(formatInput(entry));
+export function respond(
+  model: GptModel,
+  entry: InstructionEntry,
+  maxNewTokens = 256,
+  startResponse = false,
+): string {
+  const heading = startResponse ? "\n\n### Response:\n" : "";
+  const prompt = encode(formatInput(entry) + heading);
   const ids = tf.tidy(() => {
     const input = tf.tensor2d([prompt], undefined, "int32");
     return model.generate(input, maxNewTokens, { eosId: END_OF_TEXT }).arraySync()[0] as number[];
