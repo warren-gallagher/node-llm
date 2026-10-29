@@ -25,6 +25,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
   - [Is there a Python version of this material?](#is-there-a-python-version-of-this-material)
   - [Is there a visual explanation of how a transformer works?](#is-there-a-visual-explanation-of-how-a-transformer-works)
+  - [What is RAG, and how does it relate to these chapters?](#what-is-rag-and-how-does-it-relate-to-these-chapters)
 
 ---
 
@@ -638,3 +639,49 @@ The video uses GPT-3's sizes as its running example: a vocabulary of 50,257 toke
 - [*Attention in transformers, step-by-step*](https://www.3blue1brown.com/lessons/attention) (Chapter 6) works through queries, keys, values, the causal mask and multiple heads. It pairs with Chapter 3 and with the note on why each piece of attention exists.
 - [*How might LLMs store facts*](https://www.3blue1brown.com/lessons/mlp) (Chapter 7) looks at the feed-forward layers, which hold most of a model's parameters.
 - The full series, with text versions of each lesson, is at [3blue1brown.com/topics/neural-networks](https://www.3blue1brown.com/topics/neural-networks).
+
+### What is RAG, and how does it relate to these chapters?
+
+**Context:** Chapter 2 turns tokens into vectors ([`05-embedding.ts`](../packages/chapters/src/ch02-tokenizer/05-embedding.ts)), Chapter 3 lets each token draw on the others through attention ([`ch03-attention`](../packages/chapters/src/ch03-attention/)), and the model can only see `contextLength` tokens at a time ([`gpt.ts`](../packages/core/src/model/gpt.ts)). Retrieval-augmented generation (RAG) builds on all three.
+
+**Short answer:** RAG gives a model knowledge without changing its weights. Before the model answers, a search step finds passages relevant to the question in a document collection and puts them into the prompt. The model then answers from text it can see, rather than only from what it absorbed in pre-training.
+
+```mermaid
+flowchart LR
+  subgraph once["Indexing (once per document collection)"]
+    direction LR
+    d["Documents"] --> c["Chunks<br/>(a few hundred tokens each)"] --> e1["Embedding model"] --> v["Vector index"]
+  end
+  subgraph ask["Answering (per question)"]
+    direction LR
+    q["Question"] --> e2["Embedding model"] --> n["Nearest chunks<br/>(cosine similarity)"]
+    n --> p["Prompt: instructions<br/>+ retrieved chunks + question"] --> llm["LLM"] --> a["Answer,<br/>ideally with citations"]
+  end
+  v --> n
+```
+
+#### How it connects to the chapters
+
+- **Embeddings (Chapter 2).** Retrieval compares vectors by cosine similarity, as Chapter 2's embeddings are compared. The difference is the unit: an **embedding model** produces one vector per passage, not per token. It is a separate transformer, usually an encoder (attention in both directions), trained so that a question and a passage that answers it end up close together. Small ones have about 20–100 million parameters.
+- **Attention (Chapter 3).** The retrieved passages are just more tokens in the context. Attention is what lets the answer draw on them, and models are good at copying facts from their context, so even small models answer factual questions far better when the answer is in the prompt.
+- **Context length (Chapter 4).** Everything retrieved must fit in the context window alongside the question and the answer. GPT-2's 1,024 tokens leave room for a few short passages. That limit is why documents are split into chunks and only the best few are retrieved; long-context models relax it but don't remove it, because cost grows with length.
+- **Instruction tuning (Raschka's Chapter 7).** A base model given a passage and a question may simply continue the text. An instruction-tuned model has learned to answer using the input it's given. In the Alpaca template, the `### Input:` section is exactly where retrieved text goes.
+
+#### Why RAG instead of more training
+
+Instruction fine-tuning mostly teaches a model the form of an answer; its knowledge comes from pre-training. Adding knowledge by training is slow and expensive, can't easily be undone, and doesn't say where a fact came from. RAG adds knowledge by editing documents:
+
+| | Knowledge in the weights | Knowledge retrieved at answer time |
+| --- | --- | --- |
+| Updating it | Train again | Re-index the changed documents |
+| Citing a source | Not possible | The retrieved passages are the sources |
+| Restricting who sees what | Not possible once trained in | Filter retrieval by the user's permissions |
+| Fails when | The fact wasn't learned, or is out of date | Retrieval misses the right passage, or the model ignores or misreads it |
+
+Production systems add more stages: hybrid search (keyword matching combined with embeddings), a **re-ranker** model that reorders the retrieved passages, and query rewriting. Agents that call tools or search the web are a generalization of the same idea: anything inserted into the context at answer time shapes the answer.
+
+#### Retrieved text is input, not instructions
+
+The model can't tell a retrieved passage from an instruction, since both are tokens in its context. A planted document can therefore steer answers or carry instructions ("indirect prompt injection"). The PoisonedRAG paper (Zou et al., 2024) showed that a handful of injected passages can control the answers to targeted questions. Where documents come from, and who vouches for them, matters as much as which model is used.
+
+This fork's unofficial companion branch has a small RAG demo built on the Chapter 7 instruction-tuned model.
