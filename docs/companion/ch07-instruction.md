@@ -192,7 +192,7 @@ It repeats the sentence, then starts a new instruction, because headings followe
 
 ## Lesson 5 · Fine-tuning
 
-Code: [`trainer.ts`](../../packages/core/src/train/trainer.ts) (`trainModel`, `crossEntropyLoss`) · Run: `pnpm --filter @node-llm/chapters ch07:5` (about 25 minutes for 124M on an Apple M2 CPU)
+Code: [`trainer.ts`](../../packages/core/src/train/trainer.ts) (`trainModel`, `crossEntropyLoss`) · Run: `pnpm --filter @node-llm/chapters ch07:5` (on an Apple M2 CPU: about 25 minutes for 124M, about 1¾ hours with `--355m`)
 
 Nothing new is needed. It's Chapter 5's training loop and next-token loss, on the instruction batches, with every weight trained:
 
@@ -224,17 +224,28 @@ The fast early drop is the model learning the **template**. A large share of eve
 
 The two lines separate during the second epoch: training loss keeps falling while validation loss levels off around 0.73. That's the start of overfitting, as Raschka sees too; with all 163 million weights trainable and only 935 examples, the model can begin to memorize them. Raschka stops at 2 epochs for that reason.
 
-After each epoch, the lesson asks the model to answer the first validation instruction (make "The chef cooks the meal every day." passive). Both times, the 124M model answered "The chef cooks the meal every day.": the right format, the wrong content. Raschka's 355M model answers "The meal is prepared every day by the chef." after epoch 1.
+GPT-2 355M follows the same pattern from a lower starting point and ends lower. Its validation loss, against 124M's:
+
+```mermaid
+xychart-beta
+    title "Validation loss: GPT-2 124M (upper) and 355M (lower)"
+    x-axis "Optimizer step" [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230]
+    y-axis "Cross-entropy loss" 0 --> 1.3
+    line [1.216, 1.036, 0.988, 0.925, 0.893, 0.859, 0.852, 0.834, 0.823, 0.818, 0.804, 0.79, 0.795, 0.791, 0.763, 0.764, 0.764, 0.767, 0.756, 0.755, 0.74, 0.734, 0.733]
+    line [0.971, 0.883, 0.841, 0.787, 0.755, 0.728, 0.713, 0.691, 0.683, 0.694, 0.678, 0.667, 0.675, 0.68, 0.673, 0.665, 0.652, 0.66, 0.642, 0.637, 0.639, 0.639, 0.635]
+```
+
+After each epoch, the lesson asks the model to answer the first validation instruction (make "The chef cooks the meal every day." passive). Both sizes answered "The chef cooks the meal every day." both times: the right format, the wrong content. Raschka's 355M run answered "The meal is prepared every day by the chef." after epoch 1 and "The meal is cooked everyday by the chef." after epoch 2. Two runs of the same recipe see the training batches in a different order, and on a single example that's enough to change the answer.
 
 ### Results
 
-| | GPT-2 124M (this repo) | GPT-2 355M (Raschka) |
-| --- | --- | --- |
-| Loss before training (5 batches): training / validation | 4.115 / 4.051 | 3.826 / 3.762 |
-| Loss after 2 epochs: training / validation | 0.441 / 0.733 | 0.299 / 0.657 |
-| Training time | 23.6 min (Apple M2, CPU) | 3.35 min (Apple Silicon GPU, via PyTorch's MPS) |
+| | GPT-2 124M (this repo) | GPT-2 355M (this repo) | GPT-2 355M (Raschka) |
+| --- | --- | --- | --- |
+| Loss before training (5 batches): training / validation | 4.115 / 4.051 | 3.836 / 3.762 | 3.826 / 3.762 |
+| Loss after 2 epochs: training / validation | 0.441 / 0.733 | 0.348 / 0.635 | 0.299 / 0.657 |
+| Training time | 23.6 min (Apple M2, CPU) | 107.3 min (Apple M2, CPU) | 3.35 min (Apple Silicon GPU, via PyTorch's MPS) |
 
-The validation set and its order are the same as Raschka's, so the validation losses compare directly. The training losses are on 5 shuffled batches and are rougher. The larger model starts lower and ends lower, which lesson 7 shows in the quality of the answers.
+The validation set and its order are the same as Raschka's, so the validation losses compare directly. Before training, this repo's 355M model and Raschka's give the same validation loss, 3.762, which confirms that the weights, the batches and the loss all match. After training they end close together. The training losses are on 5 shuffled batches and are rougher. The larger model starts lower and ends lower, which lesson 7 shows in the quality of the answers.
 
 The lesson saves the fine-tuned model to `checkpoints/gpt2-124m-instruct/`. Every weight changed, so unlike Chapter 6's 28 MB of changes, this is the whole model: 652 MB, or 1.6 GB for 355M.
 
@@ -248,13 +259,15 @@ Code: [`06-responses.ts`](../../packages/chapters/src/ch07-instruction/06-respon
 
 The book's first three test instructions:
 
-| Instruction | Reference answer | GPT-2 124M (this repo) | GPT-2 355M (Raschka) |
-| --- | --- | --- | --- |
-| Rewrite the sentence using a simile: "The car is very fast." | The car is as fast as lightning. | The car is as fast as a horse. | The car is as fast as a bullet. |
-| What type of cloud is typically associated with thunderstorms? | … cumulonimbus. | A type of thunderstorm is a low pressure system. | The type of cloud associated with thunderstorms is a cumulus cloud. |
-| Name the author of 'Pride and Prejudice'. | Jane Austen. | The author of 'Pride and Prejudice' is Robert Frost. | The author of 'Pride and Prejudice' is Jane Austen. |
+| Instruction | Reference answer | GPT-2 124M (this repo) | GPT-2 355M (this repo) | GPT-2 355M (Raschka) |
+| --- | --- | --- | --- | --- |
+| Rewrite the sentence using a simile: "The car is very fast." | The car is as fast as lightning. | The car is as fast as a horse. | The car is as fast as a bullet. | The car is as fast as a bullet. |
+| What type of cloud is typically associated with thunderstorms? | … cumulonimbus. | A type of thunderstorm is a low pressure system. | … is a cumulus cloud. | … is a cumulus cloud. |
+| Name the author of 'Pride and Prejudice'. | Jane Austen. | … is Robert Frost. | … is George Bernard Shaw. | … is Jane Austen. |
 
-All 110 answers take about 6 minutes for 124M on the CPU, and are saved to `data/instruction/test-responses-124m.json`. Reading through them, the 124M model's answers fall into four groups:
+The two 355M runs agree on the first two and differ on the third. A fact the model only half knows can come out either way after small differences in training.
+
+All 110 answers take about 6 minutes for 124M on the CPU (14 minutes for 355M), and are saved to `data/instruction/test-responses-124m.json`. Reading through them, the 124M model's answers fall into four groups:
 
 | | Examples from the test set |
 | --- | --- |
@@ -301,11 +314,12 @@ The lesson talks to Ollama at `http://localhost:11434` and says what's missing i
 | Model | Average score (110 test answers) | Source |
 | --- | --- | --- |
 | GPT-2 124M, fine-tuned here | 35.18 | This repo |
+| GPT-2 355M, fine-tuned here | 48.71 | This repo |
 | GPT-2 355M, fine-tuned | 49.45 | Raschka |
 | Llama 3 8B base, answering directly | 58.51 | Raschka |
 | Llama 3 8B Instruct, answering directly | 82.65 | Raschka |
 
-The judge is Llama 3 8B Instruct itself, so its own 82.65 is likely flattered. The comparison that matters is between the two GPT-2 sizes: the same data, settings and judge, and the larger model scores about 14 points higher.
+The judge is Llama 3 8B Instruct itself, so its own 82.65 is likely flattered. The comparison that matters is between the two GPT-2 sizes: with the same data, settings and judge, the larger model scores about 13.5 points higher. The two 355M runs, Raschka's on a GPU and this one on a CPU, score within a point of each other (49.45 and 48.71), even though they disagree on individual answers. The average is a much more stable measure than any one answer.
 
 The judge's reasoning on the three answers above:
 
@@ -314,6 +328,8 @@ The judge's reasoning on the three answers above:
 | "The car is as fast as a horse." | 75 | A correct simile, but a generic comparison |
 | "A type of thunderstorm is a low pressure system." | 20 | Doesn't answer the question about clouds |
 | "The author of 'Pride and Prejudice' is Robert Frost." | 0 | Wrong author |
+
+This repo's 355M answers to the same three questions scored 95, 40 and 0.
 
 ### What a judge's score is worth
 
@@ -384,7 +400,9 @@ With 12 passages, the lesson compares the question with every one. Real systems 
 
 ### Generation
 
-| Question | Without retrieval (124M) | With retrieval (124M) |
+GPT-2 124M:
+
+| Question | Without retrieval | With retrieval |
 | --- | --- | --- |
 | Pride and Prejudice | The author of 'Pride and Prejudice' is Robert Frost. | The novel was written by Jane Austen. ✓ |
 | Mercury | The chemical symbol for mercury is Mg. | The chemical symbol for mercury is Hg. ✓ |
@@ -393,7 +411,20 @@ With 12 passages, the lesson compares the question with every one. Real systems 
 | Sonnet | A sonnet is a device that measures the height of a given animal. | A sonnet is a poem of 12 lines with a set rhyme scheme. (nearly) |
 | 'library' in Spanish | … is 'Library of Alexandria'. | The Spanish translation of 'biblioteca' is 'biblioteca estás'. |
 
-Retrieval worked every time; the 124M model used what it was given in two cases out of six. Its 935 training examples used `### Input:` for text to transform ("rewrite this sentence"), not for reference material to answer from, so reading a passage for an answer is a skill it never practised. Production systems fine-tune on examples of exactly that: a question, retrieved passages, and an answer grounded in them.
+GPT-2 355M:
+
+| Question | Without retrieval | With retrieval |
+| --- | --- | --- |
+| Pride and Prejudice | … is George Bernard Shaw. | The author of 'Pride and Prejudice' is Jane Austen. ✓ |
+| Mercury | The chemical symbol for mercury is Hg. ✓ | The chemical symbol for mercury is Hg. ✓ |
+| Chlorine | The periodic symbol for chlorine is CHCl2. | The periodic symbol for chlorine is C. |
+| Thunderstorm clouds | … is a cumulus cloud. | … is cumulus. |
+| Sonnet | A sonnet is a poem composed of three lines, each of which is a complete sentence. | A sonnet is a poem of 14 lines with a set rhyme scheme. ✓ |
+| 'library' in Spanish | … is 'libraries'. | Biblioteca is a synonym for 'library'. (the right word, oddly put) |
+
+Retrieval worked every time. The 124M model used what it was given in two cases out of six; the 355M model in three or four. Its 935 training examples used `### Input:` for text to transform ("rewrite this sentence"), not for reference material to answer from, so reading a passage for an answer is a skill it never practised. Production systems fine-tune on examples of exactly that: a question, retrieved passages, and an answer grounded in them.
+
+The 355M model's thunderstorm answer shows a second failure. The passage says "cumulonimbus", and the model still answers "cumulus", the wrong answer it gives without retrieval. When what a model learned in training conflicts with what it's given, the learned answer sometimes wins, especially when the two are as similar as "cumulus" and "cumulonimbus". RAG systems guard against this with models trained to prefer the provided context, and by checking answers against the retrieved sources.
 
 One detail matters here. In this lesson the prompt ends with the `### Response:` heading. Without it, the 124M model often ended the example right after the passage: a passage like "Its chemical symbol is Hg." reads like a finished answer, and the most likely next token was `<|endoftext|>`.
 
@@ -411,7 +442,7 @@ indexing only passages from trusted sources:
   answer:    The novel was written by Jane Austen.
 ```
 
-The planted passage beats the real one on similarity, because it repeats the question's words. Filtering by source restores the right answer. In the lesson, `source` is a plain string; in a real system it would be a credential from the document's publisher, verified before the document is indexed. Research has shown the same attack at scale: in the PoisonedRAG study (Zou et al., 2024), a few planted passages controlled the answers to targeted questions in collections of millions.
+Both model sizes repeat the planted claim. The planted passage beats the real one on similarity, because it repeats the question's words. Filtering by source restores the right answer. In the lesson, `source` is a plain string; in a real system it would be a credential from the document's publisher, verified before the document is indexed. Research has shown the same attack at scale: in the PoisonedRAG study (Zou et al., 2024), a few planted passages controlled the answers to targeted questions in collections of millions.
 
 ---
 
@@ -424,7 +455,7 @@ The planted passage beats the real one on similarity, because it repeats the que
 | Which padding is masked | Every 50256 in the targets after the first | Every position after each example's own end, which is the same unless a text contains 50256 itself |
 | Steps in the loss log | Counted from 0, so "step 5" is after 6 updates | Counted as updates completed, as in Chapter 5 |
 | Download check | None | SHA-256 of the dataset file, recorded in 2026-10 |
-| Hardware | GPU when available (3.35 min for 355M on Apple Silicon) | CPU only (23.6 min for 124M on an Apple M2) |
+| Hardware | GPU when available (3.35 min for 355M on Apple Silicon) | CPU only, on an Apple M2: 23.6 min for 124M, 107 min for 355M |
 
 ---
 
