@@ -31,6 +31,13 @@
     "ch06:5": "tsx src/ch06-classification/05-loss-accuracy.ts",
     "ch06:6": "tsx src/ch06-classification/06-fine-tuning.ts",
     "ch06:7": "tsx src/ch06-classification/07-classify.ts",
+    "ch07:1": "tsx src/ch07-instruction/01-dataset.ts",
+    "ch07:2": "tsx src/ch07-instruction/02-batching.ts",
+    "ch07:3": "tsx src/ch07-instruction/03-data-loaders.ts",
+    "ch07:4": "tsx src/ch07-instruction/04-pretrained-model.ts",
+    "ch07:5": "tsx src/ch07-instruction/05-fine-tuning.ts",
+    "ch07:6": "tsx src/ch07-instruction/06-responses.ts",
+    "ch07:7": "tsx src/ch07-instruction/07-evaluate.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

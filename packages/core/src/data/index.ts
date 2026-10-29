@@ -13,3 +13,13 @@ export {
   type TensorBatch,
 } from "./dataLoader";
 export { LlmDataset, type Sample } from "./dataset";
+export {
+  type CollateOptions,
+  collateInstructions,
+  formatInput,
+  formatResponse,
+  InstructionDataset,
+  type InstructionEntry,
+  InstructionLoader,
+  type InstructionLoaderOptions,
+} from "./instruction";
