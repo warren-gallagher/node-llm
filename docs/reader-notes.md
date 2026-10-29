@@ -17,6 +17,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [Why does each piece of attention exist (Q/K/V, √d, causal mask, heads)?](#why-does-each-piece-of-attention-exist-qkv-d-causal-mask-heads)
 - [Chapter 4: The GPT model](#chapter-4-the-gpt-model)
   - [Are modern LLMs still built this way?](#are-modern-llms-still-built-this-way)
+  - [How are a model's sizes chosen: dimensions, layers, heads, context length?](#how-are-a-models-sizes-chosen-dimensions-layers-heads-context-length)
 - [Chapter 5: Training](#chapter-5-training)
   - [Where is "predict the next token" actually written down?](#where-is-predict-the-next-token-actually-written-down)
   - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
@@ -372,6 +373,45 @@ Detailed accounts of training large models now come mostly from elsewhere:
 - **OpenAI's open-weight gpt-oss models (2025).** They were released with a model card describing their architecture.
 
 The architecture is now the least secret part of a model, because open models cover the same design space. What labs keep undisclosed is mainly the training data and its mixture, the post-training recipe (preference data, reinforcement-learning environments, reward design), and the scale and cost of training.
+
+### How are a model's sizes chosen: dimensions, layers, heads, context length?
+
+**Context:** [`GPT_CONFIG_124M`](../packages/core/src/model/gpt.ts) fixes `vocabSize`, `contextLength`, `embDim`, `numHeads` and `numLayers` for GPT-2 small. The Chapter 2 note on [what `vocabSize` and `embDim` look like in modern LLMs](#what-do-vocabsize-and-embdim-look-like-in-modern-llms) lists current values; this note covers how such values are chosen.
+
+**Short answer:** Mostly by experiment. No theory produces "768 dimensions" or "12 layers". The choice is narrowed by scaling laws, by small trial runs that are extrapolated to large ones, by hardware arithmetic, by the budget, and by what the model needs to do. Convention fills the remaining gaps.
+
+```mermaid
+flowchart LR
+  B[Compute budget<br/>and inference cost] --> S[Scaling laws:<br/>parameters and tokens]
+  S --> P[Parameter count]
+  P --> D[Shape: width, depth, heads]
+  H[Hardware:<br/>multiples of 64/128, memory] --> D
+  U[Use case:<br/>context length, languages] --> C[Context length,<br/>vocabulary]
+  D --> R[Small trial runs,<br/>extrapolated]
+  C --> R
+```
+
+#### What constrains the choice
+
+- **Scaling laws.** Kaplan et al. (OpenAI, 2020) measured how loss falls as parameters, data and compute grow. One finding: at a fixed parameter count, the model's shape (deep and narrow, or shallow and wide) matters fairly little over a wide range, so there is no single correct ratio of layers to width. Hoffmann et al. ("Chinchilla", DeepMind, 2022) found that the most compute-efficient training uses about 20 training tokens per parameter.
+- **Inference cost.** Many current models train far past that ratio on purpose. Llama 3 8B was trained on about 15 trillion tokens, nearly 2,000 per parameter. A smaller model trained for longer costs more to train but less to run, and running it is where most of the cost ends up.
+- **Small runs predict big ones.** Labs train many small models, fit curves to their results and extrapolate before committing to one expensive run. Methods such as μP (Yang et al., 2022) let learning rates tuned on a small model carry over to a larger one.
+- **Hardware.** Dimensions are usually multiples of 64 or 128, because GPU matrix units work on tiles of that size. GPT-2's vocabulary of 50,257 is not, which is why Karpathy's nanoGPT pads it to 50,304 and trains noticeably faster. Total size is also chosen to fit the memory of particular GPUs, or of a laptop or phone.
+- **The intended use.** Context length follows the tasks the model is for, such as long documents or whole codebases. Attention's cost grows with the square of the sequence length, so models are usually pre-trained on short sequences and extended in a later stage; Llama 3.1 went from 8,192 to 128k tokens that way. Vocabulary size trades fewer tokens per text against a larger embedding table, and multilingual models need more tokens.
+- **Decisions that are hard to undo.** The tokenizer and the embedding size are fixed at the start. Changing either means training again from scratch, so they get the most deliberation.
+
+#### Where GPT-2's numbers come from
+
+| Setting | GPT-2 small | How it was arrived at | Llama 3 8B, for comparison |
+| --- | --- | --- | --- |
+| `vocabSize` | 50,257 | 256 byte tokens, 50,000 learned BPE merges (a chosen number), and one end-of-text token | 128,256 |
+| `contextLength` | 1,024 | Doubled from GPT-1's 512 | 8,192 (128k in Llama 3.1) |
+| `embDim` | 768 | One of four sizes OpenAI trained (768, 1,024, 1,280, 1,600) to study scaling | 4,096 |
+| `numHeads` | 12 | Gives 64 dimensions per head, a common choice since the original Transformer | 32 (128 per head) |
+| `numLayers` | 12 | Same as GPT-1; the larger GPT-2 models use 24, 36 and 48 | 32 |
+| Feed-forward width | 3,072 (4 × 768) | The 4× ratio of the original Transformer (2017) | 14,336 (3.5 × 4,096; SwiGLU models start from about 8/3× and round) |
+
+Many of these numbers began as one paper's reasonable default and stayed because later experiments found nothing clearly better.
 
 ---
 
