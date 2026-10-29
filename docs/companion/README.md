@@ -13,6 +13,7 @@ From Chapter 6 on, the repo has no stubs to fill. Those chapters add new code be
 | [4 · GPT Model](ch04-gpt.md) | LayerNorm & GELU · Transformer block · Full GPT model | [`packages/core/src/model`](../../packages/core/src/model) · [`ch04-gpt`](../../packages/chapters/src/ch04-gpt) | Reviewed |
 | [5 · Training](ch05-training.md) | Loss & cross-entropy · Training loop · Text generation · *Extra: loading GPT-2's weights* | [`packages/core/src/train`](../../packages/core/src/train) · [`ch05-training`](../../packages/chapters/src/ch05-training) | Written, awaiting review |
 | [6 · Fine-tuning for classification](ch06-classification.md) | *No stubs in this repo; follows Raschka's Chapter 6:* Dataset · Padding & batches · Pretrained GPT-2 · New head & freezing · Loss & accuracy · Fine-tuning · Using the classifier | [`classifier.ts`](../../packages/core/src/model/classifier.ts) · [`classifierTrainer.ts`](../../packages/core/src/train/classifierTrainer.ts) · [`ch06-classification`](../../packages/chapters/src/ch06-classification) | Written, awaiting review |
+| [7 · Fine-tuning to follow instructions](ch07-instruction.md) | *No stubs in this repo; follows Raschka's Chapter 7:* Dataset · Batching · Data loaders · Pretrained GPT-2 · Fine-tuning · Generating responses · Scoring | [`instruction.ts`](../../packages/core/src/data/instruction.ts) · [`trainer.ts`](../../packages/core/src/train/trainer.ts) · [`ch07-instruction`](../../packages/chapters/src/ch07-instruction) | Written, awaiting review |
 
 Each chapter's code is runnable on its own:
 
@@ -28,4 +29,9 @@ pnpm --filter @node-llm/chapters ch06:1   # the SMS spam dataset (~200 KB, once)
 pnpm --filter @node-llm/chapters ch06:4   # GPT-2 with a 2-class head
 pnpm --filter @node-llm/chapters ch06:6   # fine-tune the spam classifier (~15 min on a laptop CPU)
 pnpm --filter @node-llm/chapters ch06:7   # classify new messages
+pnpm --filter @node-llm/chapters ch07:1   # the instruction dataset (~200 KB, once)
+pnpm --filter @node-llm/chapters ch07:2   # padding, shifting and masking a batch
+pnpm --filter @node-llm/chapters ch07:5   # instruction fine-tune GPT-2 124M (~25 min; add --355m for the book's size)
+pnpm --filter @node-llm/chapters ch07:6   # answer the 110 test instructions
+pnpm --filter @node-llm/chapters ch07:7   # score the answers with Llama 3 8B in Ollama
 ```
