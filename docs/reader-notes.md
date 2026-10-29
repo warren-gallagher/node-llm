@@ -23,6 +23,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
 - [General](#general)
   - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
   - [Is there a Python version of this material?](#is-there-a-python-version-of-this-material)
+  - [Is there a visual explanation of how a transformer works?](#is-there-a-visual-explanation-of-how-a-transformer-works)
 
 ---
 
@@ -573,3 +574,27 @@ Chapters 6 and 7 and Appendix E cover post-training: adapting a pre-trained mode
 - **Reference results.** The notebooks show their outputs (parameter counts, losses, generated text), so results here can be checked against them without installing Python. The unofficial companion chapters on this fork's `companion` branch are checked this way.
 - **Translating the code.** The PyTorch and TensorFlow.js code map closely. PyTorch's `nn.Linear` corresponds to a weight matrix plus bias here, `nn.Module` to a class with a `weights` array, and `torch.no_grad()` roughly to `tf.tidy()` outside a gradient computation. Two differences catch people out. PyTorch stores linear weights as `[dOut, dIn]` while this repo uses `[dIn, dOut]`. PyTorch's default initialization is a uniform range of ±1/√dIn, and matching it matters for training to behave like the book's.
 - **Going further.** Readers who want the fine-tuning chapters before this book publishes them can switch to the Python book from Chapter 6. The concepts from Chapters 2–5 carry over unchanged. Most of the tooling around real models (Hugging Face, safetensors, model cards) is also Python-first.
+
+### Is there a visual explanation of how a transformer works?
+
+**Context:** The book explains the GPT architecture in code: embeddings in Chapter 2, attention in [`ch03-attention`](../packages/chapters/src/ch03-attention/), and the full model in [`gpt.ts`](../packages/core/src/model/gpt.ts). Seeing the same ideas drawn as geometry can make the code easier to follow.
+
+**Short answer:** 3Blue1Brown's video [*Transformers, the tech behind LLMs*](https://www.youtube.com/watch?v=wjZofJX0v4M) (Deep Learning, Chapter 5) animates how a GPT turns text into a prediction of the next token. A [text version](https://www.3blue1brown.com/lessons/gpt) is on 3Blue1Brown's site. It needs no code and works well before or after Chapters 2–4. The next two videos in the series go deeper into attention and into the feed-forward layers.
+
+#### How the video lines up with this repo
+
+| In the video | In this repo |
+| --- | --- |
+| Text is split into tokens, and each token becomes a vector (embedding); directions in that space carry meaning | Chapter 2, and the reader note on whether embeddings "cluster" |
+| Attention lets each vector take in information from earlier tokens | Chapter 3 |
+| Blocks of attention plus a feed-forward network (MLP) are stacked many times | Chapter 4, `TransformerBlock` |
+| The last vector is projected back onto the vocabulary ("unembedding") and softmax turns the scores into probabilities | Chapter 4, `outHead` |
+| Temperature controls how random the sampled next token is | Chapter 5, text generation |
+
+The video uses GPT-3's sizes as its running example: a vocabulary of 50,257 tokens (the same tokenizer family as GPT-2's), 12,288-dimensional embeddings and 175 billion parameters. Comparing those with the 124M configuration here (768 dimensions, 12 layers) shows that the architecture is the same and the scale is what changed.
+
+#### The rest of the series
+
+- [*Attention in transformers, step-by-step*](https://www.3blue1brown.com/lessons/attention) (Chapter 6) works through queries, keys, values, the causal mask and multiple heads. It pairs with Chapter 3 and with the note on why each piece of attention exists.
+- [*How might LLMs store facts*](https://www.3blue1brown.com/lessons/mlp) (Chapter 7) looks at the feed-forward layers, which hold most of a model's parameters.
+- The full series, with text versions of each lesson, is at [3blue1brown.com/topics/neural-networks](https://www.3blue1brown.com/topics/neural-networks).
