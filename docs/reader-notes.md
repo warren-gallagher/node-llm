@@ -18,6 +18,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
 - [Chapter 4: The GPT model](#chapter-4-the-gpt-model)
   - [Are modern LLMs still built this way?](#are-modern-llms-still-built-this-way)
   - [How are a model's sizes chosen: dimensions, layers, heads, context length?](#how-are-a-models-sizes-chosen-dimensions-layers-heads-context-length)
+  - [What is abliteration, and how can safety training be removed?](#what-is-abliteration-and-how-can-safety-training-be-removed)
 - [Chapter 5: Training](#chapter-5-training)
   - [Where is "predict the next token" actually written down?](#where-is-predict-the-next-token-actually-written-down)
   - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
@@ -413,6 +414,51 @@ flowchart LR
 | Feed-forward width | 3,072 (4 × 768) | The 4× ratio of the original Transformer (2017) | 14,336 (3.5 × 4,096; SwiGLU models start from about 8/3× and round) |
 
 Many of these numbers began as one paper's reasonable default and stayed because later experiments found nothing clearly better.
+
+### What is abliteration, and how can safety training be removed?
+
+**Context:** Each transformer block in [`block.ts`](../packages/core/src/model/block.ts) adds its attention output and its feed-forward output back onto its input through shortcut connections, and [`gpt.ts`](../packages/core/src/model/gpt.ts) passes that running sum from block to block. This running sum, one `embDim`-sized vector per token, is called the **residual stream**. Abliteration edits what the model can write into it.
+
+**Short answer:** Abliteration removes a model's tendency to refuse requests by deleting one direction from its residual stream. It finds the direction that separates the model's internal state on harmful prompts from its state on harmless ones, then edits the weights so that nothing can write along that direction any more. No training is involved: it's a single linear-algebra edit, done in minutes. The model stays fluent and keeps its knowledge, but stops refusing. The technique comes from Arditi et al. (2024), "Refusal in Language Models Is Mediated by a Single Direction"; the name was coined in the open-model community the same year.
+
+#### How it works
+
+1. **Collect activations.** Run the safety-trained model on a few hundred harmful prompts and a few hundred harmless ones, and record the residual-stream vector at a chosen layer and position.
+2. **Find the refusal direction.** Subtract the average harmless vector from the average harmful one, and scale the result to length 1. Call it r. It's one vector of `embDim` numbers.
+3. **Remove it from the weights.** Every matrix that writes into the residual stream is changed so that its output has no component along r. Those are the token embedding, and each block's attention output projection and feed-forward output projection. Written for this repo's `[dIn, dOut]` layout, where a layer computes x W, the edit is W ← W − (W r) rᵀ: from every output the matrix can produce, subtract its projection onto r. (Papers using the column-vector convention write it W ← W − r rᵀ W.) For the token embedding, each row is edited the same way.
+
+```mermaid
+flowchart LR
+  subgraph before["Before"]
+    direction TB
+    x1["residual stream"] --> b1["block writes<br/>attention + feed-forward output,<br/>including some along r"] --> y1["model refuses when<br/>the r component is large"]
+  end
+  subgraph after["After abliteration"]
+    direction TB
+    x2["residual stream"] --> b2["same block, edited weights:<br/>output has zero component along r"] --> y2["the signal that triggers<br/>refusal never forms"]
+  end
+```
+
+The same idea can also run the other way: **adding** a direction to the residual stream at inference time (a "steering vector") can strengthen a behavior, such as a tone or a topic, without training.
+
+#### Why it works
+
+Safety training is post-training: a relatively small adjustment on top of what pre-training learned (see the companion's Chapter 7 for what supervised fine-tuning changes). Research suggests that much of its effect on refusal is concentrated in a low-dimensional feature that the model computes and then acts on. Remove that feature and the behavior goes with it. Fine-tuning can remove safety training too: Qi et al. (2023) undid GPT-3.5 Turbo's safety training with 10 adversarial examples through OpenAI's fine-tuning API, at a cost under $0.20. Abliteration is simply the cheapest and most targeted way.
+
+Abliterated versions of popular open-weight models are widely shared, often labelled "abliterated" or "uncensored". Uses include safety research, red-teaming, and avoiding over-refusal, as well as misuse. Anyone with a model's weights can do it, so safety training on an open-weight model is a default, not a lock. Making safety training resistant to removal ("tamper-resistant safeguards") is an active research area with limited success so far (as of 2026-10).
+
+#### How an abliterated model can be detected
+
+The weights change, so the file's hash changes, and any signature or credential bound to the original hash no longer matches. Given the original model, the edit is also recognizable from the weights themselves:
+
+| Change | What the difference between the old and new weights looks like |
+| --- | --- |
+| Abliteration | In every matrix that writes into the residual stream, the difference is **rank 1** and built from the **same** vector r. The new matrices have exactly zero output along r. |
+| LoRA adapter merged in | Low rank, but a different direction in each layer, often in only some matrices |
+| Full fine-tuning | Small changes in every weight, of full rank |
+| Quantization | Small, uniform rounding noise from a known algorithm |
+
+Without the original model, an auditor has to rely on behavior: refusal rates on standard sets of harmful prompts (for example, HarmBench or AdvBench), compared with the original model's published results.
 
 ---
 
