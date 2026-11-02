@@ -27,6 +27,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
   - [Is there a Python version of this material?](#is-there-a-python-version-of-this-material)
   - [Is there a visual explanation of how a transformer works?](#is-there-a-visual-explanation-of-how-a-transformer-works)
   - [What is RAG, and how does it relate to these chapters?](#what-is-rag-and-how-does-it-relate-to-these-chapters)
+  - [What changes for audio, video, and multimodal models?](#what-changes-for-audio-video-and-multimodal-models)
 
 ---
 
@@ -731,3 +732,57 @@ Production systems add more stages: hybrid search (keyword matching combined wit
 The model can't tell a retrieved passage from an instruction, since both are tokens in its context. A planted document can therefore steer answers or carry instructions ("indirect prompt injection"). The PoisonedRAG paper (Zou et al., 2024) showed that a handful of injected passages can control the answers to targeted questions. Where documents come from, and who vouches for them, matters as much as which model is used.
 
 This fork's unofficial companion branch has a small RAG demo built on the Chapter 7 instruction-tuned model.
+
+### What changes for audio, video, and multimodal models?
+
+**Context:** Chapter 2 turns text into tokens and token vectors ([`ch02-tokenizer`](../packages/chapters/src/ch02-tokenizer/)), and Chapters 3 and 4 build the transformer that processes them ([`gpt.ts`](../packages/core/src/model/gpt.ts)). Models for other kinds of data reuse that transformer and replace the first step.
+
+**Short answer:** Mostly the front end. Nearly all current audio, image, video, and multimodal models use transformer blocks like the ones in this repo. What differs is how each kind of data becomes a sequence of vectors, how output is turned back into sound or pixels, and how many separately trained components the finished system contains. Image and video generators also often use a different training objective, diffusion, in place of next-token prediction.
+
+#### Audio
+
+Sound has no natural vocabulary, so it is turned into a sequence in one of two ways:
+
+- **As a spectrogram.** The waveform becomes a grid of frequencies over time, which an encoder reads like an image. Whisper, a speech-recognition model, converts audio into a log-mel spectrogram in 30-second windows; an encoder reads it and a text decoder, similar to this repo's GPT, writes the transcript.
+- **As tokens from a neural codec.** A codec such as EnCodec, SoundStream, or Mimi is a trained network that compresses audio into a stream of IDs from learned codebooks, several per short frame (a technique called residual vector quantization). A GPT-style model then predicts the next audio token exactly as Chapter 5's model predicts the next text token, and the codec's decoder turns the tokens back into sound. Speech generation and voice cloning commonly work this way.
+
+The difference from text matters: GPT-2's tokenizer is a fixed list of merges, but a codec is itself a trained model, with its own weights and training data.
+
+#### Images and video
+
+- **Images.** A vision transformer (ViT) cuts an image into square patches, often 16×16 pixels, so a 224×224 image becomes 196 patches. Each patch is flattened and projected to a vector, which plays the role of a token embedding; the rest is a transformer encoder.
+- **Video.** Patches extend across several frames. Raw video gives far too many patches, so models usually work in a compressed **latent space** produced by another trained network (an autoencoder). Even then, a few seconds of video can produce thousands of tokens, so compression and cost shape the design.
+- **Generation.** Most image and video generators are **diffusion** models: during training, noise is added to an example and the model learns to predict and remove it; at generation time it starts from pure noise and removes it over many steps. The network is frequently a transformer (a "diffusion transformer"), but the objective is denoising, not next-token prediction.
+
+#### Multimodal models
+
+Models that take several kinds of input (and sometimes produce several kinds of output) are built in two broad ways:
+
+| | Adapter ("late fusion") | Native ("early fusion") |
+| --- | --- | --- |
+| How it works | A pretrained encoder for images or audio, plus a small **projector** that maps the encoder's output into the LLM's embedding space | Every modality is tokenized into one shared sequence and one transformer is trained on all of it |
+| Training | Often only the projector at first, with the encoder and LLM frozen; later stages may fine-tune more | Pre-training on mixed text, image, and other tokens from the start |
+| Example | LLaVA: a CLIP vision encoder, a projector, and a Vicuna LLM | Meta's Chameleon |
+
+```mermaid
+flowchart LR
+  img["Image"] --> enc["Vision encoder<br/>(pretrained, often frozen)"] --> proj["Projector<br/>(small, trained)"]
+  txt["Text prompt"] --> tok["Tokenizer +<br/>token embedding"]
+  proj --> seq["One sequence of vectors"]
+  tok --> seq
+  seq --> llm["LLM transformer blocks"] --> out["Text answer"]
+```
+
+The vision encoder in this design is often CLIP or a successor. CLIP is trained contrastively, so that an image and a caption describing it end up as nearby vectors. It is the same idea as the embedding model in the RAG entry above, extended across modalities, and it is what makes image search by text description possible.
+
+#### What this means for model provenance
+
+Everything about verifying a text model still applies: weight files can be hashed, and changes to weights can be found by comparing them. Some things become harder:
+
+- **More components.** A multimodal system may combine an LLM, a vision encoder, a projector, an audio codec, and a vocoder, each from a different publisher under a different license. Its lineage is a graph, not a single chain of fine-tunes. Frozen components stay byte-identical to their published versions, which makes them easy to check.
+- **More sensitive training data.** Voices and faces are biometric and likeness data. Several laws protect them specifically (for example, Illinois's BIPA lists voiceprints as biometric identifiers, and Tennessee's ELVIS Act of 2024 protects voice likeness), so consent from the people recorded matters in a way it rarely does for text.
+- **Existing media provenance standards (as of 2026-11).** C2PA "Content Credentials" are signed manifests attached to images, video, and audio, recording how a file was made and edited. Related specifications from the Creator Assertions Working Group add identity assertions and "do not train" preferences. Text has no comparable standard.
+- **Marking generated output (as of 2026-11).** Watermarks such as Google's SynthID and C2PA manifests on generated media are the main ways of labeling synthetic content. The EU AI Act's Article 50 requires machine-readable marking of AI-generated audio, image, and video; check its current application dates, which have been the subject of simplification proposals.
+- **Safety tests must name their modalities.** Safety training done on text does not automatically carry over to other inputs; instructions rendered as text inside an image are a known way around it. A safety evaluation only covers the input types it tested.
+
+Raschka's article "Understanding Multimodal LLMs" (*Ahead of AI*, 2024) describes the adapter and native designs in more detail, with examples of published models.
