@@ -22,6 +22,7 @@ Entries follow the book's chapter order. Each entry links to the code it discuss
 - [Chapter 5: Training](#chapter-5-training)
   - [Where is "predict the next token" actually written down?](#where-is-predict-the-next-token-actually-written-down)
   - [Is GPT-2's training data available, and could this repo train on it?](#is-gpt-2s-training-data-available-and-could-this-repo-train-on-it)
+  - [Why does training give different weights each run, and can it be made reproducible?](#why-does-training-give-different-weights-each-run-and-can-it-be-made-reproducible)
 - [General](#general)
   - [How does software know how to load a model file? Are formats self-describing, and do names matter?](#how-does-software-know-how-to-load-a-model-file-are-formats-self-describing-and-do-names-matter)
   - [Is there a Python version of this material?](#is-there-a-python-version-of-this-material)
@@ -554,6 +555,71 @@ Without WebText, there's no way to confirm whether a particular text, *The Verdi
 #### Available is not the same as licensed
 
 OpenWebText and similar datasets are scraped web pages. The datasets are freely downloadable, but most of the pages in them are copyrighted by their authors. Recording each document's source and license (see [training on whole books and web articles](#how-would-i-train-on-a-whole-book-or-web-articles-and-what-metadata-matters)) is what makes questions about training data answerable later.
+
+### Why does training give different weights each run, and can it be made reproducible?
+
+**Context:** Chapter 5 trains with [`trainModel`](../packages/core/src/train/trainer.ts). Run the same lesson twice and the losses, the generated samples and the saved weights all come out slightly different. Raschka's book calls `torch.manual_seed(123)` so that readers see the same numbers it prints.
+
+**Short answer:** Three things in training are random, and none is seeded: the initial weights, dropout, and the order of the batches. tfjs has no global seed like PyTorch's `torch.manual_seed`. But any random op given no seed takes one from `Math.random()`. So replacing `Math.random` with a seeded generator makes a run repeat bit for bit on the same machine with the same thread count. Change the thread count and the last bits of the weights change. For large models, bit-exact reproduction of training is not practical.
+
+#### Where the randomness comes from
+
+| Source | Where | Effect |
+| --- | --- | --- |
+| Weight initialization | `tf.randomNormal` and `tf.randomUniform` when layers are built, for example [`multiHeadAttention.ts:71-74`](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts#L71-L74) | Every run starts from a different point |
+| Dropout | `tf.dropout` while training, for example [`multiHeadAttention.ts:108`](../packages/core/src/model/attention/multi-head/multiHeadAttention.ts#L108) | A different random 10% of values is zeroed at each step |
+| Batch order | The Fisher-Yates shuffle in [`dataLoader.ts:90-92`](../packages/core/src/data/dataLoader.ts#L90-L92), which calls `Math.random()` | Each epoch sees the batches in a different order |
+
+Generating text adds a fourth source when it samples with a `temperature` above 0 (Chapter 5's text generation lesson), but that only affects the output text, not the weights.
+
+#### Seeding all of it
+
+Every tfjs random op accepts an optional seed. When none is given, tfjs-core's generators (in [`rand_util`](https://github.com/tensorflow/tfjs/blob/master/tfjs-core/src/ops/rand_util.ts)) take one from `Math.random()`. The shuffle calls `Math.random()` directly. So one replacement at the top of a script covers all three sources:
+
+```ts
+// mulberry32: a small, fast, seedable generator with Math.random's interface.
+let state = 42;
+Math.random = function seededRandom(): number {
+  state = (state + 0x6d2b79f5) >>> 0;
+  let t = state;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+```
+
+Two details:
+
+- **For normal and gamma distributions, a seed of 0 counts as no seed.** Their generators use `seed ? seed : Math.random()`, which treats 0 as false, so `tf.randomNormal(shape, 0, 1, "float32", 0)` is not seeded. The uniform generator checks `seed == null` instead, so 0 works there.
+- **The same seed won't reproduce Raschka's numbers.** PyTorch and tfjs use different random number algorithms, so seed 123 produces different initial weights in each. Matching the book's losses exactly would mean loading its weights, not its seed.
+
+#### A test (2026-11)
+
+A 2-layer, 128-dimension model with dropout 0.1 was trained on *The Verdict* for 10 epochs (about 23 seconds) on an Apple M2. After each run, all the weights were hashed:
+
+| Seed | Threads | Hash of trained weights | Final validation loss |
+| --- | --- | --- | --- |
+| 42 | 8 (default) | `de24e3f3…` | 6.37278938293457 |
+| 42 | 8 (default) | `de24e3f3…` | 6.37278938293457 |
+| 43 | 8 (default) | `dccd0346…` | 6.444502353668213 |
+| 42 | 1 | `82b3e745…` | 6.37278938293457 |
+
+The same seed gave identical weights. With one thread instead of eight, the initial weights still matched, but the trained weights did not. The loss was the same to every printed digit, so only the lowest bits differed.
+
+#### Why the thread count matters
+
+Floating-point addition is not associative. In JavaScript:
+
+```text
+(0.1 + 0.2) + 0.3  →  0.6000000000000001
+0.1 + (0.2 + 0.3)  →  0.6
+```
+
+A matrix multiplication adds up many products. With more threads, the backend splits those sums differently and combines the partial sums in a different order. Each change is tiny, but training feeds every step's result into the next, so the differences stay in the weights.
+
+#### At larger scale
+
+GPUs add more sources of variation. Some GPU operations combine partial results in whatever order the hardware finishes them. Training spread across many GPUs also depends on how the work is divided between them. PyTorch offers `torch.use_deterministic_algorithms(True)` to avoid the non-deterministic operations, at some cost in speed. Even so, a large model's training run is very expensive to repeat, and its data is usually not public. In practice, a model is identified by the hash of its released weights, not by re-running the training that produced them.
 
 ---
 
