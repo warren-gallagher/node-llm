@@ -239,7 +239,7 @@ The demo issues UNTP 0.7.0 credentials. Each sign request carries the 0.7.0 `cre
 
 Some shared values:
 
-- **Product ids:** `ni:///sha-256;<hex>` (RFC 6920), with `idScheme` naming RFC 6920 and `idGranularity: "item"`, because one exact file is meant.
+- **Product ids:** RFC 6920 named-information URIs, `ni:///sha-256;<digest>`, where the digest is base64url without padding (the hex form belongs to the separate `nih:` scheme). For The Verdict that is `ni:///sha-256;tB5Bpo8DmKMVSuaeLkwOJpThf-DWZzBTaDfxsBk1sx8`. `idScheme` names RFC 6920, and `idGranularity` is `"item"`, because one exact file is meant.
 - **Product category:** a `Classification` from a small scheme the extension defines (`dataset`, `model`). It isn't clear that any UN CPC code fits.
 - **Facilities and country:** each party's facility, and its country in `countryOfProduction`.
 
@@ -247,7 +247,7 @@ Some shared values:
 
 | Field | Value |
 | --- | --- |
-| `id` | `ni:///sha-256;b41e41a6…5b31f` |
+| `id` | `ni:///sha-256;tB5Bpo8DmKMVSuaeLkwOJpThf-DWZzBTaDfxsBk1sx8` (SHA-256 `b41e41a6…5b31f`) |
 | `name`, `description` | "The Verdict (Edith Wharton, 1908)", the plain-text corpus |
 | `productCategory` | `dataset` |
 | `producedAtFacility`, `countryOfProduction`, `productionDate` | Book Publisher's facility and country, and the date the corpus was prepared |

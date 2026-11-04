@@ -38,7 +38,7 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | --- | --- |
 | M1 | Done (aq-server-common 0.82.0 published) |
 | M2 | Done 2026-11-04: the full coffee demo runs on 0.7.0 on the local stack (`realtime` and the did:web server) |
-| M3 | Not started |
+| M3 | Ran end to end 2026-11-04; waiting on the user's review of the credentials |
 | M4 | Not started |
 | M5 | Not started |
 
@@ -146,14 +146,43 @@ Kept current as work happens, so a new session can resume from here. Read this s
 
 - 2026-11-04: M3 scope agreed; see [M3 decisions](#m3-decisions-2026-11-04). The docs in this repo are committed before the M3 code.
 
-**Next:** M3, the node-llm demo CLI (WP5), following [M3 decisions](#m3-decisions-2026-11-04). Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
+- 2026-11-04: The user committed the docs (`d0fc0cb`).
+- 2026-11-04: M3 code written in `packages/chapters/src/credential-demo/` (uncommitted):
+  - Modules: `env.ts`, `client.ts`, `hashing.ts`, `parties.ts`, `claims.ts`, `seeded.ts` and `state.ts`. Entry points: `setup.ts` (`pnpm demo:setup`) and `run.ts` (`pnpm demo:run`), with scripts in the root and chapters `package.json`.
+  - No new dependencies. The request JWT is HS256 through `node:crypto`. Platform settings for a new authority are written out (`identity-credential`, `ndts`, `dev`, ES256, did:web, `vc+jwt`, internal keys), matching `DefaultIdentityCredentialPlatformSettings.defaults`, because this repo doesn't depend on `aq-common-typescript`.
+  - **Correction to the design: `ni` URIs use base64url, not hex.** RFC 6920 encodes the digest of an `ni` URI in base64url without padding; the hex form is the separate `nih:` scheme. The Verdict is `ni:///sha-256;tB5Bpo8DmKMVSuaeLkwOJpThf-DWZzBTaDfxsBk1sx8`. The design doc, this plan and the extension README in `realtime` are corrected; the README change in `realtime` is uncommitted. `aq-server-common`'s test fixtures still use a hex form, which is a valid URI, so they pass; changing them is optional.
+  - Links between credentials carry `digestMultibase` = the multibase SHA-256 multihash of the linked credential's JWT, as returned by the sign call. M4's link-integrity check must hash the same bytes (the JWT published at `credentialId`).
+  - Names that the parties define (schemes, criteria, topics, facilities, claim and attestation ids) are https URLs on the party's own did:web host, for example `https://<Evaluators Association host>/schemes/model-evaluation`. They are identifiers and don't resolve.
+  - Choices not in the design: the accreditations use `assessorLevel: 3rdParty` and `assessmentLevel: scheme-self` (the schema gives no definitions for these codes); loss is a `Measure` in `C62`, since Recommendation 20 has no unit for nats per token; `Book Publisher` is in the US and `Model Publisher` in Canada.
+  - Training uses `ch05-training/train.ts`'s configuration and `evalEvery: 10`. Evaluation shuffles the training loader, which draws on the seeded generator, so `evalEvery` changes the weights. The Model Auditor step reloads the checkpoint from disk, checks the weights' hash, and measures the validation loss with `evaluateLoss`.
+  - Checks:
+    - 31 tests pass in `packages/chapters`, 27 of them new (`tests/credential-demo/`); the typecheck is clean; Biome is clean on the new files.
+    - All seven requests, built from the test fixtures, pass `realtime`'s `UntpSchemaService` (the official 0.7.0 schemas fetched from untp.unece.org, plus the extension schemas) after `applyDefaultTypes`. This was checked with a scratch script, which is not kept.
+    - Not yet run against the platform.
+
+- 2026-11-04: the user's ngrok plan allowed only 4 tunnels, and the demo needs 6 (`realtime` plus one per authority). The user upgraded the plan and moved `AQIO_DID_WEB_BASE_DOMAIN` to `ngrok.io`, so each authority's host is `verdict-demo-<role>-<word>.ngrok.io`, each with its own tunnel.
+- 2026-11-04: `pnpm demo:setup` and `pnpm demo:run` ran to completion. Setup created and published the five authorities and issued the two accreditations. Run `2026-11-04T17-24-19Z` issued the rights DCC, the dataset DPP, the training DTE, the evaluation DCC and the model DPP. Validation loss 6.3728; weights sha256 `de24e3f3e2ca58ad2222e9f24bf54b344fecdc868204a830a780a37b08001072`. The manifest is in `checkpoints/verdict-demo/credentials.json` (git-ignored).
+- 2026-11-04: `demo:run` verified the five credentials it issued, and all five passed (proof, structure, 0.7.0 schema). How `realtime`'s verifier follows links (`aq-server-common` `supply-chain-credential-version-mappings.ts`, and `realtime` `supply-chain-credential.service.ts`):
+    - For a DPP or DTE, `upstreamCredentials` verifies the `dpp` and `dte` links found anywhere in the subject. `dccValidity` checks separately that each `dcc` link was valid when the credential was issued. So the dataset DPP has 0 upstream credentials (its only link is to the rights DCC), the DTE has 1 (the dataset DPP), and the model DPP has 2 (the DTE and the dataset DPP). Every DCC link went through `dccValidity`.
+    - `/dcc/verify` always passes `checkUpstream: false`, so DCCs report "Upstream validation was not requested" and a warning, even though the demo asks for the check. Nothing checks a DCC's `authorisation[].endorsementEvidence`, so the accreditation behind the rights and evaluation DCCs is never verified. The `accreditation_links` mapping exists, but nothing uses it.
+    - `demo:run` doesn't verify the two accreditations, because `demo:setup` issues them.
+- 2026-11-04: Decided: `realtime` checks a DCC's accreditations, but only when the DCC links any. This delivers the "follow links from DCCs" part of WP3 item 4 ahead of the rest of M4. Committed in all three repos; `aq-server-common` republished, and `realtime` and `aq-did-web-server` updated to it:
+    - `realtime` (`untp-0.7`):
+        - In `supply-chain-credential-verification.service.ts`, a new step 9b runs for DCCs when `checkUpstream` isn't `false`. For each `authorisation[].endorsementEvidence` link, the linked credential must verify, be a DCC, come from the endorsement's `issuingAuthority`, be issued to the DCC's issuer, and have been valid when the DCC was issued. The result goes in `checks.accreditation` (`ACCREDITATION-VALID` or `ACCREDITATION-INVALID`), with an `ACCREDITATION_NOT_VALID` error giving the reason, or a `WARN-ACCREDITATION-SINCE-EXPIRED` warning. A DCC with no links gets no check and no warning. An accreditation's own accreditations are not followed. The time check is now shared with the DCC validity check (`validityAtTime`).
+        - `/dcc/verify` takes `checkUpstream` (default `true`) instead of always passing `false`. When a DPP or DTE checks the DCCs it links, it still passes `false`, so it doesn't fetch their accreditations.
+        - 10 new specs. The full unit suite passes (3297).
+    - `aq-server-common`: `VerificationResultSchema` gains the optional `checks.accreditation`. This only changes the shared type and the OpenAPI docs, because response schemas aren't enforced at runtime. Published 2026-11-04.
+    - `aq-did-web-server`: `dcc.html` shows an "Accreditation" row when the check is present.
+    - Found along the way: the `checkUpstream` and `checkDccValidity` query parameters use `z.coerce.boolean()`, which turns the string `"false"` into `true`. So `?checkUpstream=false` has no effect on any verify endpoint. Zod 4's `z.stringbool()` parses it correctly. Not fixed yet.
+
+**Next:** the user reviews the credentials (the verify results `demo:run` printed, and the did:web pages), then commits the M3 code. Then M4 (`demo:verify`, `demo:tamper`, full-chain checks). Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
 
 ## Environment
 
 | Piece | Where it runs | Notes |
 | --- | --- | --- |
 | `realtime` | Local, `http://localhost:3002`, exposed as `https://realtime-aq.ngrok.io` | Runs the `untp-0.7` branch. Provisioned by hand with a tenant and a v2 API key |
-| `aq-did-web-server` | Local, behind ngrok | Runs the `untp-0.7` branch. `AQIO_DID_WEB_BASE_DOMAIN` is `dids-aq.ngrok.io` in both servers. **Each did:web host that must resolve needs its own ngrok tunnel** to the local server. A single wildcard tunnel doesn't work, because ngrok doesn't resolve the sub-subdomains on its own (found 2026-11-04). So every new authority the demo creates (M3: dataset publisher, trainer, evaluator, accreditation body, and so on) needs a tunnel before its DID resolves. The server's `realtimeUrl` is the local `realtime`, so the pages' "Verify Credential" button uses the `untp-0.7` verifier |
+| `aq-did-web-server` | Local, behind ngrok | Runs the `untp-0.7` branch. `AQIO_DID_WEB_BASE_DOMAIN` is `ngrok.io` in both servers (it was `dids-aq.ngrok.io` until 2026-11-04). **Each did:web host that must resolve needs its own ngrok tunnel** to the local server. A single wildcard tunnel doesn't work, because ngrok doesn't resolve the sub-subdomains on its own (found 2026-11-04). So every new authority the demo creates (M3: dataset publisher, trainer, evaluator, accreditation body, and so on) needs a tunnel before its DID resolves. The server's `realtimeUrl` is the local `realtime`, so the pages' "Verify Credential" button uses the `untp-0.7` verifier |
 | Blob storage | Shared by the two local servers | The local `realtime` writes credentials and DID documents there, and the local did:web server serves them |
 | Extension files | `realtime/public/untp/ai-model/0.1.0/`, served at `${AQ_API_URL}/untp/ai-model/0.1.0/` (today `https://realtime-aq.ngrok.io/untp/ai-model/0.1.0/`) | Foal serves `public/` as static files |
 | The demo | This repo, Node 22 | Reads `AQ_API_URL`, `AQ_TENANT_ID` and `AQ_API_KEY` from `.env` using Node's built-in `process.loadEnvFile`, so no new dependency is needed |
@@ -261,7 +290,7 @@ Location: `realtime/public/untp/ai-model/0.1.0/`. Each file is dereferenced rela
 
 The first draft is written; see [Progress](#progress). The vocabulary, which covers only what phase 1 uses, is documented in the extension's `README.md`:
 
-- **Identifier scheme:** RFC 6920 `ni:///sha-256;…` for datasets and weights.
+- **Identifier scheme:** RFC 6920 `ni:///sha-256;<base64url digest>` for datasets and weights.
 - **Dataset:** `DatasetCharacteristics` in the DPP's `characteristics`. It holds the byte length, media type and encoding, source URL and licence; token counts, each with its tokenizer; and files.
 - **Model:** `ModelCharacteristics` in the DPP's `characteristics`. It holds the architecture, parameter count, config and tokenizer, plus each file with its byte length and digest.
 - **Training:** `trainingRun` on the DTE's `MakeEvent`. It holds the process type, hyperparameters, epochs, split, final losses, code repository and commit, duration, `quantityBasis`, and the reproduction details.
@@ -339,7 +368,7 @@ Location: `packages/chapters/src/credential-demo/`. Scripts go in `packages/chap
 | --- | --- |
 | `env.ts` | Loads `.env` and checks that the three variables are set |
 | `client.ts` | `AqClient`: v2 request signing (HS256 with `node:crypto`; claims as in `aq-api-v2-sample`), `getOrCreateAuthority`, `publishAuthority`, `sign(type, authorityId, claims)`, `verify(url)` |
-| `hashing.ts` | SHA-256 of a file, and the `ni:///sha-256;…` form |
+| `hashing.ts` | SHA-256 of a file, its RFC 6920 `ni` form (base64url) and its `digestMultibase` |
 | `parties.ts` | The five authorities: names, facilities and countries |
 | `claims.ts` | Pure functions that build each credential's claims from hashes and earlier URLs: `accreditationDcc`, `rightsDcc`, `datasetDpp`, `trainingDte`, `evaluationDcc`, `modelDpp` |
 | `seeded.ts` | mulberry32, and the `Math.random` override used for the seeded training run |
