@@ -21,6 +21,8 @@
     "ch07:train": "pnpm --filter @node-llm/chapters ch07:5",
     "demo:setup": "pnpm --filter @node-llm/chapters demo:setup",
     "demo:run": "pnpm --filter @node-llm/chapters demo:run",
+    "demo:verify": "pnpm --filter @node-llm/chapters demo:verify",
+    "demo:tamper": "pnpm --filter @node-llm/chapters demo:tamper",
     "playground": "pnpm --filter @node-llm/playground dev"
   },
   "devDependencies": {

@@ -38,6 +38,15 @@ export interface VerificationResult {
   credentialType: CredentialType;
   issuer: string;
   checks: Record<string, VerificationCheck | undefined>;
+  /** How the parent credential linked to this one (nested results only). */
+  link?: {
+    url: string;
+    linkType?: string;
+    linkName?: string;
+    digestMultibase?: string;
+    path?: string;
+  };
+  /** Each credential this one links, verified through its own links in turn. */
   upstreamResults?: VerificationResult[];
   errors: { code: string; message: string }[];
   warnings: { code: string; message: string }[];
@@ -144,14 +153,23 @@ export class AqClient {
     return this.request("POST", `/api/supply-chain/${type}/sign/${authorityId}`, request);
   }
 
-  /** Verification needs no authentication, so this sends none, as a buyer would. */
+  /**
+   * Verifies a credential and everything it links, through the whole chain (the platform's
+   * defaults). Verification needs no authentication, so this sends none, as a buyer would.
+   */
   async verify(type: CredentialType, credentialId: string): Promise<VerificationResult> {
     const response = await fetch(`${this.env.apiUrl}/api/supply-chain/${type}/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ credentialId, checkUpstream: true, checkDccValidity: true }),
+      body: JSON.stringify({ credentialId }),
     });
     return this.parse<VerificationResult>(response, `verify ${type}`);
+  }
+
+  /** The credential's JWT, from its did:web URL (which serves an HTML page to browsers). */
+  async fetchCredential(credentialId: string): Promise<string> {
+    const response = await fetch(credentialId, { headers: { Accept: "application/vc+ld+jwt" } });
+    return this.parse<string>(response, `GET ${credentialId}`, false);
   }
 
   private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
@@ -166,7 +184,7 @@ export class AqClient {
     return this.parse<T>(response, `${method} ${path}`);
   }
 
-  private async parse<T>(response: Response, what: string): Promise<T> {
+  private async parse<T>(response: Response, what: string, json = true): Promise<T> {
     const text = await response.text();
     if (!response.ok) {
       throw new HttpError(
@@ -175,6 +193,7 @@ export class AqClient {
         `${what}: HTTP ${response.status} ${response.statusText}\n${text}`,
       );
     }
+    if (!json) return text as T;
     return (text ? JSON.parse(text) : undefined) as T;
   }
 }

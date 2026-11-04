@@ -8,6 +8,7 @@ import { evaluateLoss, GPT_CONFIG_124M, GptModel, trainModel } from "@node-llm/c
 import * as tf from "@tensorflow/tfjs-node";
 import { encode } from "gpt-tokenizer/encoding/r50k_base";
 import { loadCheckpoint, loadVerdict, makeLoaders, saveCheckpoint } from "../ch05-training/shared";
+import { EVALUATION_BATCH_SIZE } from "./buyer";
 import {
   type DatasetFacts,
   type DemoContext,
@@ -295,7 +296,7 @@ function evaluate(
   }
   const gpt = loadCheckpoint(checkpoint);
   if (!gpt) throw new Error(`no checkpoint at ${checkpoint}`);
-  const { val } = makeLoaders(loadVerdict(), gpt.config.contextLength, BATCH_SIZE);
+  const { val } = makeLoaders(loadVerdict(), gpt.config.contextLength, EVALUATION_BATCH_SIZE);
   const validationLoss = evaluateLoss(gpt, val);
   gpt.dispose();
   console.log(`\nEvaluation: validation loss ${validationLoss}`);

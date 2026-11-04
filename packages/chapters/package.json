@@ -41,6 +41,8 @@
     "ch07:rag": "tsx src/ch07-instruction/08-rag.ts",
     "demo:setup": "tsx src/credential-demo/setup.ts",
     "demo:run": "tsx src/credential-demo/run.ts",
+    "demo:verify": "tsx src/credential-demo/verify.ts",
+    "demo:tamper": "tsx src/credential-demo/tamper.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
