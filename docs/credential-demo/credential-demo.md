@@ -229,7 +229,7 @@ sequenceDiagram
   RT->>W: resolve issuer DIDs, fetch the whole upstream chain
   RT-->>B: signature, schema, DCC validity, lineage results
   Note over B: artifact check: hash weights.bin and config.json,<br/>compare with the model DPP id
-  Note over B: trust check: issuers are the expected authorities,<br/>evaluators accredited by Evaluators Association
+  Note over B: trust check (deferred): issuers are the expected authorities,<br/>evaluators accredited by Evaluators Association
   Note over B: evaluation re-run: run the named harness,<br/>compare with the evaluation DCC
 ```
 
@@ -386,7 +386,7 @@ The platform checks that each credential is genuine. It doesn't check that the f
 | Credential | Signature, structure, schema (core and extension), DCC validity, upstream links through the whole chain | Platform `/verify`, after the upgrade |
 | Artifact | Hash `weights.bin`, `config.json` and the dataset, and compare with the passports | Demo |
 | Lineage | Walk the whole chain: DTE input hash = dataset DPP `id`; DTE output hash = model DPP `id`; evaluated hash = model hash | Platform, once upstream checks follow the whole chain; the demo shows the result |
-| Trust | Each issuer is the expected organization; the evaluator holds an accreditation from the expected accreditor | Demo |
+| Trust | Each issuer is the expected organization; the evaluator holds an accreditation from the expected accreditor | Not done yet; see [Shortcoming: trust](#shortcoming-trust) |
 | Evaluation re-run | Run the evaluation harness named in the DCC on the hashed weights, and compare with the DCC's claimed result. Far cheaper than training, so a buyer or auditor can realistically do it | Demo |
 
 Re-running training is deliberately not in this table. It is infeasible for real models (see [Reproducibility](#reproducibility-checked-2026-11-02)). For pre-training, the DTE is an attestation. Phase 2 adds the checks that do work for derivations: re-running deterministic steps such as quantization, and weight-difference forensics.
@@ -395,8 +395,20 @@ Failure cases worth showing:
 
 - Change one weight → artifact check fails.
 - Train on a different text → the lineage check fails at the DTE input.
-- A passport signed by an unexpected authority, or an evaluation from an unaccredited evaluator → trust check fails.
+- A passport signed by an unexpected authority, or an evaluation from an unaccredited evaluator → nothing catches this yet; see [Shortcoming: trust](#shortcoming-trust).
 - Revocation (withdrawn rights) comes later, with the platform's status support.
+
+### Shortcoming: trust
+
+Recorded 2026-11-04. Verification shows that a credential was signed by the DID in its `issuer` and hasn't changed since. It doesn't show that the issuer should be trusted for what it claims, and nothing in the platform or the demo checks that yet:
+
+- `realtime` checks an accreditation only when a DCC links one (`authorisation[].endorsementEvidence`). It checks that the accreditation verifies, was issued to the DCC's issuer, and came from the authority the endorsement names. It doesn't check whether that authority is one anybody trusts, so an accreditation from any authority passes, including one the DCC's issuer set up for itself.
+- A DCC that links no accreditation verifies, because UNTP makes `authorisation` optional.
+- Nothing checks that a passport's issuer is the right organization for the product.
+
+For example, suppose Model Publisher signs an evaluation DCC of its own model and cites it from a model DPP. If the DCC links no accreditation, the whole chain verifies. If it links Model Auditor's accreditation, `realtime`'s accreditation check fails, because that accreditation was issued to Model Auditor, not to Model Publisher.
+
+How a relying party should establish trust is left for a later discussion, once the M4 platform checks and `demo:verify` work. Until then, the demo has no trust check, and `demo:tamper` has no unexpected-issuer case.
 
 ## Packaging and viewing
 
@@ -456,7 +468,9 @@ Answered: reproducibility ([Reproducibility](#reproducibility-checked-2026-11-02
 | 2026-11-02 | The platform targets UNTP 0.7.0, upgraded as phase 1 is built; 1.0 follows when released |
 | 2026-11-02 | Phase 1 issues its credentials under a first draft of the AI model extension; the free-form slots are only a fallback |
 | 2026-11-02 | Accreditation stays a DCC about the evaluator for now |
-| 2026-11-02 | The demo does the trust check (expected issuers, accredited evaluators) |
+| 2026-11-02 | ~~The demo does the trust check (expected issuers, accredited evaluators)~~ Deferred on 2026-11-04 |
 | 2026-11-02 | *Proposed:* quantities use existing UN/CEFACT codes (`AD` byte, `C62` one); the extension says what is counted (on the event, because 0.7.0 `Measure` is closed) and names the tokenizer for token counts |
 | 2026-11-03 | Sign requests carry the 0.7.0 `credentialSubject` as is, plus request-level fields (option A in the plan) |
 | 2026-11-02 | *Proposed:* extend UNTP with an "AI model" extension rather than create new credential types |
+| 2026-11-04 | The trust check is deferred until the M4 platform checks work, then discussed; recorded as a [shortcoming](#shortcoming-trust) |
+| 2026-11-04 | `demo:tamper` leaves out the swapped-credential case (link integrity is covered by `realtime`'s unit specs) and the unexpected-issuer case |

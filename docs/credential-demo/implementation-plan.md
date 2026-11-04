@@ -38,7 +38,7 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | --- | --- |
 | M1 | Done (aq-server-common 0.82.0 published) |
 | M2 | Done 2026-11-04: the full coffee demo runs on 0.7.0 on the local stack (`realtime` and the did:web server) |
-| M3 | Ran end to end 2026-11-04; waiting on the user's review of the credentials |
+| M3 | Done 2026-11-04: all seven credentials issued and verified on the local stack |
 | M4 | Not started |
 | M5 | Not started |
 
@@ -175,7 +175,18 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - `aq-did-web-server`: `dcc.html` shows an "Accreditation" row when the check is present.
     - Found along the way: the `checkUpstream` and `checkDccValidity` query parameters use `z.coerce.boolean()`, which turns the string `"false"` into `true`. So `?checkUpstream=false` has no effect on any verify endpoint. Zod 4's `z.stringbool()` parses it correctly. Not fixed yet.
 
-**Next:** the user reviews the credentials (the verify results `demo:run` printed, and the did:web pages), then commits the M3 code. Then M4 (`demo:verify`, `demo:tamper`, full-chain checks). Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
+- 2026-11-04: M3 done. The user reviewed the credentials, and the code and docs are committed.
+
+- 2026-11-04: M4 scope agreed; see [M4 decisions](#m4-decisions-2026-11-04).
+- 2026-11-04: M4a written in `realtime` (`untp-0.7`), uncommitted:
+    - `supply-chain-credential-verification.service.ts`: verification is now one walk over the chain. Each linked credential is verified with the caller's options, down to `maxDepth` (default 10). Each credential is verified once per request, and a link back to a credential on the current path is skipped with `WARN-LINK-CYCLE`. Every followed credential appears in `upstreamResults` with its `link` (URL, link type, name, digest and JSON path), so DCCs and accreditations are in the tree as well as passports and events. Beyond the depth limit, links aren't followed, and the result carries `WARN-MAX-DEPTH-REACHED`.
+    - The checks on each credential's links: `upstreamCredentials`, `dccValidity` and `accreditation` as before, but computed from the linked credentials' own results, which now cover their whole chains. `linkIntegrity` compares each `digestMultibase` (a base64url SHA-256 multihash) with the hash of the stored JWT; a digest in another encoding gets a warning. `lineage` applies three rules to UNTP 0.7.0 credentials: an event's linked passports describe products among its inputs and outputs; a passport's linked events involve its product; and a DCC that a passport or event cites assesses a product in that credential's chain. The last rule differs from the plan's wording ("the passport that cites the DCC"), because the model DPP cites the rights DCC, which assesses the dataset; the dataset is in the model's chain through the DTE.
+    - `supply-chain-credential.service.ts`: `validateUpstream` runs the same link checks on the unsigned credential, as if issued now by the signing authority, and refuses to sign with a 400 naming each failure. The verify methods take an options object.
+    - `supply-chain.controller.ts`: boolean query parameters use `z.union([z.boolean(), z.stringbool()])`. `z.stringbool()` alone isn't enough: Foal's ajv hook runs after the Zod hook and coerces the parsed boolean back to a string. The DCC sign endpoint gains `validateUpstream`, and the verify endpoints gain `maxDepth`.
+    - Specs: 14 for chains, integrity, lineage and signing, and 6 HTTP tests for the query parameters. The full unit suite passes (3317).
+    - `aq-server-common` needs no change; it already had `lineage`, `linkIntegrity`, `link` and `maxDepth`.
+
+**Next:** the user reviews and commits M4a, reruns `demo:run` and the coffee demo against the local `realtime`, then M4b. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
 
 ## Environment
 
@@ -372,15 +383,15 @@ Location: `packages/chapters/src/credential-demo/`. Scripts go in `packages/chap
 | `parties.ts` | The five authorities: names, facilities and countries |
 | `claims.ts` | Pure functions that build each credential's claims from hashes and earlier URLs: `accreditationDcc`, `rightsDcc`, `datasetDpp`, `trainingDte`, `evaluationDcc`, `modelDpp` |
 | `seeded.ts` | mulberry32, and the `Math.random` override used for the seeded training run |
-| `checks.ts` | The demo's own checks: artifact (hash the files and compare with the passport), trust (expected issuers, and accreditation by Evaluators Association), and the evaluation re-run |
+| `checks.ts` | The demo's own checks: artifact (hash the files and compare with the passport) and the evaluation re-run. The trust check is deferred (see [M4 decisions](#m4-decisions-2026-11-04)) |
 | `state.ts` | Reads and writes `checkpoints/verdict-demo/credentials.json`, the manifest. `checkpoints/` is already git-ignored |
 
 | Script | Does |
 | --- | --- |
 | `demo:setup` | Creates and publishes the authorities and issues both accreditations. Saves the authority IDs and accreditation URLs so later runs reuse them |
 | `demo:run` | Runs the pipeline sequence: hash the dataset, issue the rights DCC and the dataset DPP, train (the small `ch05-training/train.ts` config, seeded), save the checkpoint, issue the DTE, evaluate with `evaluateLoss` from `@node-llm/core`, then issue the evaluation DCC and the model DPP, and write the manifest |
-| `demo:verify` | Runs the buyer's check: the platform's `/verify` of the model DPP, then the artifact, trust and evaluation re-run checks, and prints a report |
-| `demo:tamper` | Copies the checkpoint, applies each failure case (change one weight, swap in another dataset, an unexpected issuer), and shows which check catches each one |
+| `demo:verify` | Runs the buyer's check: the platform's `/verify` of the model DPP, then the artifact and evaluation re-run checks, and prints a report |
+| `demo:tamper` | Copies the checkpoint, applies each failure case (change one weight, swap in another dataset), and shows which check catches each one |
 | `demo:viewer` | Starts a small local server that serves the viewer page and the manifest, and forwards `/verify` to `realtime` (so no CORS change is needed). The page draws the credential graph, links each node to its did:web page, and hashes a dropped file in the browser |
 
 The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-training/shared.ts`, and doesn't change chapter files.
@@ -397,6 +408,18 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 
 `config.json` is never edited after it is hashed.
 
+### M4 decisions (2026-11-04)
+
+- **Two steps.** M4a is the `realtime` work (WP3 items 3–5), and M4b is the demo. Each is reviewed and committed before the next starts, because `demo:verify` reads the tree that `realtime` returns.
+- **M4a:**
+    - Full-chain verification: recurse through every link, with a visited set and a `maxDepth` limit (default 10), and return the nested tree (`upstreamResults`, with `link` on each node). DCCs found on the way get the accreditation check.
+    - Link integrity: when a link has a `digestMultibase`, compare it with the hash of the JWT that was fetched (`checks.linkIntegrity`).
+    - `validateUpstream` at signing time: verify every credential the claims link to, and refuse to sign if one fails.
+    - Lineage checks (`checks.lineage`): a DTE input's product ID equals the ID of the DPP it links; a DTE output's product ID equals the ID of the DPP that links back to it; a DCC's `assessedProduct` equals the ID of the passport that cites it.
+    - Boolean query parameters use `z.stringbool()` on every sign and verify endpoint (see [Follow-ups](#follow-ups)).
+- **`demo:tamper`** has two cases: one weight changed, and a different dataset file. The swapped-credential case is left out; link integrity is covered by `realtime`'s unit specs. The unexpected-issuer case is left out with the trust check.
+- **The trust check is deferred.** It is recorded as a shortcoming in the design ([Shortcoming: trust](credential-demo.md#shortcoming-trust)). How trust should be established is to be discussed once M4 works.
+
 ## Milestones
 
 | Milestone | Work | Ends with | Your step |
@@ -404,7 +427,8 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 | M1 | WP1, WP2 draft | `aq-server-common` built and its specs passing; extension files in `public/` | Review, then publish `aq-server-common` |
 | M2 | WP3 items 1, 2, 6 | Local `realtime` signs and validates 0.7.0 with the extension; the coffee demo runs on 0.7.0 | Run the local did:web server; provision the tenant and key; start ngrok for both servers; update `.env` |
 | M3 | WP5: `env`, `client`, `hashing`, `claims`, `demo:setup`, `demo:run` | The training run issues all seven credentials end to end | Review the credentials |
-| M4 | WP3 items 3–5, WP5: `checks`, `demo:verify`, `demo:tamper` | Full-chain and lineage verification; each failure case caught by the expected check | |
+| M4a | WP3 items 3–5 in `realtime`, and the boolean query parameter fix | Full-chain, link-integrity and lineage verification, with unit specs | Review, commit |
+| M4b | WP5: `checks`, `demo:verify`, `demo:tamper` | Each failure case caught by the expected check | Review, commit |
 | M5 | WP4, WP5: `demo:viewer` | Claims and links on the did:web pages; the viewer working | |
 
 The demo can be shown to the CTO from M4, as a CLI demo. M5 makes it visual.
@@ -436,6 +460,7 @@ Items deliberately deferred. Review this list at each milestone, and before the 
 | **Security: v2 API key binding hook never runs** | **Fixed 2026-11-03** by the user (PR 3343, `f26980c`, merged into `untp-0.7`). The hook reads the header directly and compares `htu` with `realtimeUrl`. Found 2026-11-03; the hook order was confirmed with a minimal Foal app using `realtime`'s Foal | `ValidateApiKeyJwtBinding` (a class-level hook on `ApiController` in `realtime`) reads `ctx.state['authorizationHeader']`. Only `ValidateAuthenticatedAccess` sets that, and it runs later as a method-level hook on the sub-controllers; Foal runs parent-controller hooks first. So the hook returns early and the `jti` replay, `htm` and `htu` checks never run. The unit spec sets `ctx.state` itself, which hides this. Quick confirmation: send the same v2 JWT twice; the second should get 401 "Token already used". Fix: read `ctx.request.headers['authorization']` directly (as `ValidateDpopDowngrade` does), add a test through a real request, **and** derive the expected `htu` from `X-Forwarded-Proto`/`X-Forwarded-Host` or a configured public URL. Without that, turning the check on breaks the dev cluster (`upstream-vhost` replaces `Host`) and ngrok (scheme `http`) |
 | **`htu` behind ngrok** | **Resolved 2026-11-03** by the fix above: the expected `htu` comes from `realtimeUrl` (`AQIO_API_URL`). Clients must sign with that public URL | v2 requests through ngrok and the dev cluster both succeed (checked 2026-11-03 with `aq-api-v2-sample`) only because the `htu` check isn't running. Once the hook is fixed, the expected scheme and host must come from the forwarded headers or config, as described above |
 | **did:web page verifies through the deployed `realtime`** | Found 2026-11-04; **no longer affects the demo**, which runs a local did:web server again. It still applies to anyone viewing 0.7.0 credentials on the deployed server until `untp-0.7` is deployed | The deployed did:web server's credential pages post "Verify Credential" to their own `realtimeUrl` (the deployed `realtime`, on `main`). That verifier rejects 0.7.0 DPPs with `DPP missing "product" in credentialSubject`. Options: deploy `realtime` `untp-0.7` (which fixes it, and keeps 0.6.x on the legacy path), point that server's `realtimeUrl` at the local `realtime` for a while (this affects everyone using it), or have the page choose the verifier from the credential's issuer (WP4). The local did:web server can't stand in, because ngrok doesn't resolve sub-subdomains |
+| **Boolean query parameters** | Found 2026-11-04; fixed in M4a for the supply-chain endpoints. Other controllers still use `z.coerce.boolean()` (about 20 places) | `checkUpstream`, `checkDccValidity` and `validateUpstream` on the sign and verify endpoints use `z.coerce.boolean()`, which turns the string `"false"` into `true`. So `?checkUpstream=false` is ignored, and once `validateUpstream` is implemented, `?validateUpstream=false` would turn it on. Use Zod 4's `z.stringbool()` |
 | **Extension vocabulary namespace** | Waiting on the user | Confirm `https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`, or choose another |
 | **`VerificationResultSchema` recursion** | Waiting on the user | Optionally move it from `z.lazy()` to Zod 4 getter-based recursion and infer the type |
 
