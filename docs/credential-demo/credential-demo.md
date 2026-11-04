@@ -393,8 +393,9 @@ Re-running training is deliberately not in this table. It is infeasible for real
 
 Failure cases worth showing:
 
-- Change one weight → artifact check fails.
-- Train on a different text → the lineage check fails at the DTE input.
+- Change one weight → artifact check fails. The evaluation rerun still gives the claimed loss, so only the hash catches it (`demo:tamper`).
+- Hand over a different dataset file → artifact check fails (`demo:tamper`).
+- Train on a different text → the platform's lineage check fails at the DTE input (covered by `realtime`'s unit specs, not by `demo:tamper`).
 - A passport signed by an unexpected authority, or an evaluation from an unaccredited evaluator → nothing catches this yet; see [Shortcoming: trust](#shortcoming-trust).
 - Revocation (withdrawn rights) comes later, with the platform's status support.
 

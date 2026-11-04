@@ -39,7 +39,8 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M1 | Done (aq-server-common 0.82.0 published) |
 | M2 | Done 2026-11-04: the full coffee demo runs on 0.7.0 on the local stack (`realtime` and the did:web server) |
 | M3 | Done 2026-11-04: all seven credentials issued and verified on the local stack |
-| M4 | Not started |
+| M4a | Done 2026-11-04: whole-chain verification, link integrity, lineage and `validateUpstream` in `realtime`; checked against `demo:run` and the coffee demo |
+| M4b | Written 2026-11-04 (uncommitted); `demo:verify` and `demo:tamper` run on the local stack |
 | M5 | Not started |
 
 **Log** (newest last):
@@ -186,7 +187,16 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - Specs: 14 for chains, integrity, lineage and signing, and 6 HTTP tests for the query parameters. The full unit suite passes (3317).
     - `aq-server-common` needs no change; it already had `lineage`, `linkIntegrity`, `link` and `maxDepth`.
 
-**Next:** the user reviews and commits M4a, reruns `demo:run` and the coffee demo against the local `realtime`, then M4b. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
+- 2026-11-04: M4a committed in `realtime`. The user reran `demo:run` and the coffee demo against it, and both checked out. The second training run's weights hash matched the first run's exactly (`de24e3f3…1072`).
+- 2026-11-04: M4b written in `packages/chapters/src/credential-demo/` (uncommitted):
+    - `checks.ts` holds the buyer's checks as pure functions, in four groups. **Credentials:** the dataset passport and evaluation that were read match the digests in the model passport's links. **Claims:** the evaluation assessed the model in the passport, used the dataset in the dataset passport, and measured the loss the passport claims. **Artifact:** `weights.bin`, `config.json` and the dataset file hash to what the passports list. **Evaluation:** rerunning `evaluateLoss` on the buyer's files gives the claimed loss, within 1e-4. It also holds the two tampering helpers.
+    - `buyer.ts` asks the platform to verify the model passport (the whole chain), reads the three credentials from their did:web URLs as raw JWTs, hashes the files, and reruns the evaluation. `EVALUATION_BATCH_SIZE` (8) is shared with `run.ts`, because `evaluateLoss` averages per batch.
+    - `demo:verify [runId]` prints the platform's tree (a credential linked from several places is printed once), then the buyer's checks, then ACCEPTED or NOT ACCEPTED, and notes that trust isn't checked. On the local stack, the latest run is ACCEPTED, with a rerun loss identical to the claimed one.
+    - `demo:tamper [runId]` runs the buyer's checks on altered copies under `checkpoints/verdict-demo/tamper/`, and prints which check group catches each case. The cases are untampered (accepted), one weight changed (caught by the artifact check), and one name changed in the training part of the dataset (caught by the artifact check). In both tampered cases, the platform verifies and the evaluation rerun gives exactly the claimed loss, so only the hashes catch them.
+    - `client.ts` gains `fetchCredential`, and `link` on nested verification results.
+    - 10 new tests (`checks.test.ts`); 37 in all for the demo.
+
+**Next:** the user reviews and commits M4b. Then M5 (WP4 templates and `demo:viewer`), or the trust discussion. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
 
 ## Environment
 
