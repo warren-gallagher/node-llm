@@ -15,3 +15,6 @@ checkpoints/
 
 # Local data corpora (keep small samples in fixtures/ instead)
 /data/
+
+# Local secrets (platform URL, tenant, API key)
+.env
