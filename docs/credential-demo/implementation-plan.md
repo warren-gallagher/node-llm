@@ -40,8 +40,8 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M2 | Done 2026-11-04: the full coffee demo runs on 0.7.0 on the local stack (`realtime` and the did:web server) |
 | M3 | Done 2026-11-04: all seven credentials issued and verified on the local stack |
 | M4a | Done 2026-11-04: whole-chain verification, link integrity, lineage and `validateUpstream` in `realtime`; checked against `demo:run` and the coffee demo |
-| M4b | Written 2026-11-04 (uncommitted); `demo:verify` and `demo:tamper` run on the local stack |
-| M5 | Not started |
+| M4b | Done 2026-11-04: `demo:verify` accepts the latest run, and `demo:tamper` catches each case with the expected check |
+| M5 | M5a written 2026-11-05 (aq-did-web-server uncommitted); M5b not started |
 
 **Log** (newest last):
 
@@ -196,7 +196,14 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - `client.ts` gains `fetchCredential`, and `link` on nested verification results.
     - 10 new tests (`checks.test.ts`); 37 in all for the demo.
 
-**Next:** the user reviews and commits M4b. Then M5 (WP4 templates and `demo:viewer`), or the trust discussion. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)), and the getter-based recursion for `VerificationResultSchema`.
+- 2026-11-05: M4 done. Issuer trust discussed: UNTP's Digital Identity Anchor is the direction. The platform side is written up in `realtime` `docs/SUPPLY-CHAIN-FUTURES.md`, and the AI side in the credential-strategy Claude Doc ("Trusting the issuers").
+- 2026-11-05: M5 scope agreed; see [M5 decisions](#m5-decisions-2026-11-05).
+- 2026-11-05: M5a.
+    - `VerificationResultSchema` in `aq-server-common` gains `name`, and its type is now inferred from the schema, except the recursive `upstreamResults` (see [Follow-ups](#follow-ups)). This is committed and published, and `realtime` sets `name` on every node (committed).
+    - `aq-did-web-server` (uncommitted): `dpp.html`, `dte.html` and `dcc.html` are replaced by one `credential.html`. The controller passes the per-type settings (`CREDENTIAL_PAGES`: title, colours, verify path) and the credential as JSON, with every `<` escaped so no claim can close the script element. The page shows the credential's name, a Linked Credentials table (name linked to the page, type, digest), the claims as a collapsible key/value tree, and the Verify result as a tree with every check shown generically and repeats marked. Everything taken from the credential or from the verifier is set as text, not HTML. 4 new specs (38 in all).
+    - Checked by rendering the real model passport page in headless Chrome, with a verification tree built by hand from the manifest (the local `realtime` wasn't running).
+
+**Next:** the user reviews and commits M5a, then checks the pages against a live `realtime`. Then M5b (`demo:viewer`). Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
 
 ## Environment
 
@@ -430,6 +437,14 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 - **`demo:tamper`** has two cases: one weight changed, and a different dataset file. The swapped-credential case is left out; link integrity is covered by `realtime`'s unit specs. The unexpected-issuer case is left out with the trust check.
 - **The trust check is deferred.** It is recorded as a shortcoming in the design ([Shortcoming: trust](credential-demo.md#shortcoming-trust)). How trust should be established is to be discussed once M4 works.
 
+### M5 decisions (2026-11-05)
+
+- **Two steps.** M5a is the did:web pages (WP4) plus the `name` change below, and M5b is `demo:viewer`. Each is reviewed before the next starts.
+- **Credential names in verification results.** `realtime` adds `name` (the credential's own name) to every node of the verification result, and `VerificationResultSchema` in `aq-server-common` gains it. The pages and the viewer can then label credentials without fetching them, which a browser page couldn't do across did:web hosts without CORS. `demo:verify` drops its extra fetches.
+- **One template.** `dpp.html`, `dte.html` and `dcc.html` differ only in title, colours, verify path and check rows. They become one `credential.html`, with a small map per type in the controller.
+- **Pages:** the claims as a collapsed key/value tree, rendered generically; links to other credentials shown by name and linked to their pages, with digests; the Verify result as a tree, one line per credential, every check shown generically, repeats marked.
+- **Viewer:** a hand-laid-out SVG graph (columns by depth, no dependency) built from the verification tree, with each node linked to its did:web page; files dropped on the page are hashed in the browser and compared with the passports. A local server serves the page and forwards `/verify` to `realtime`. The evaluation rerun stays in `demo:verify`, and the page says that trust isn't checked.
+
 ## Milestones
 
 | Milestone | Work | Ends with | Your step |
@@ -470,9 +485,10 @@ Items deliberately deferred. Review this list at each milestone, and before the 
 | **Security: v2 API key binding hook never runs** | **Fixed 2026-11-03** by the user (PR 3343, `f26980c`, merged into `untp-0.7`). The hook reads the header directly and compares `htu` with `realtimeUrl`. Found 2026-11-03; the hook order was confirmed with a minimal Foal app using `realtime`'s Foal | `ValidateApiKeyJwtBinding` (a class-level hook on `ApiController` in `realtime`) reads `ctx.state['authorizationHeader']`. Only `ValidateAuthenticatedAccess` sets that, and it runs later as a method-level hook on the sub-controllers; Foal runs parent-controller hooks first. So the hook returns early and the `jti` replay, `htm` and `htu` checks never run. The unit spec sets `ctx.state` itself, which hides this. Quick confirmation: send the same v2 JWT twice; the second should get 401 "Token already used". Fix: read `ctx.request.headers['authorization']` directly (as `ValidateDpopDowngrade` does), add a test through a real request, **and** derive the expected `htu` from `X-Forwarded-Proto`/`X-Forwarded-Host` or a configured public URL. Without that, turning the check on breaks the dev cluster (`upstream-vhost` replaces `Host`) and ngrok (scheme `http`) |
 | **`htu` behind ngrok** | **Resolved 2026-11-03** by the fix above: the expected `htu` comes from `realtimeUrl` (`AQIO_API_URL`). Clients must sign with that public URL | v2 requests through ngrok and the dev cluster both succeed (checked 2026-11-03 with `aq-api-v2-sample`) only because the `htu` check isn't running. Once the hook is fixed, the expected scheme and host must come from the forwarded headers or config, as described above |
 | **did:web page verifies through the deployed `realtime`** | Found 2026-11-04; **no longer affects the demo**, which runs a local did:web server again. It still applies to anyone viewing 0.7.0 credentials on the deployed server until `untp-0.7` is deployed | The deployed did:web server's credential pages post "Verify Credential" to their own `realtimeUrl` (the deployed `realtime`, on `main`). That verifier rejects 0.7.0 DPPs with `DPP missing "product" in credentialSubject`. Options: deploy `realtime` `untp-0.7` (which fixes it, and keeps 0.6.x on the legacy path), point that server's `realtimeUrl` at the local `realtime` for a while (this affects everyone using it), or have the page choose the verifier from the credential's issuer (WP4). The local did:web server can't stand in, because ngrok doesn't resolve sub-subdomains |
-| **Boolean query parameters** | Found 2026-11-04; fixed in M4a for the supply-chain endpoints. Other controllers still use `z.coerce.boolean()` (about 20 places) | `checkUpstream`, `checkDccValidity` and `validateUpstream` on the sign and verify endpoints use `z.coerce.boolean()`, which turns the string `"false"` into `true`. So `?checkUpstream=false` is ignored, and once `validateUpstream` is implemented, `?validateUpstream=false` would turn it on. Use Zod 4's `z.stringbool()` |
+| **Boolean query parameters** | Found 2026-11-04; fixed in M4a for the supply-chain endpoints. Nine other uses of `z.coerce.boolean()` remain in `realtime` and `aq-server-common` | `checkUpstream`, `checkDccValidity` and `validateUpstream` on the sign and verify endpoints use `z.coerce.boolean()`, which turns the string `"false"` into `true`. So `?checkUpstream=false` is ignored, and once `validateUpstream` is implemented, `?validateUpstream=false` would turn it on. Use Zod 4's `z.stringbool()` |
 | **Extension vocabulary namespace** | Waiting on the user | Confirm `https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`, or choose another |
-| **`VerificationResultSchema` recursion** | Waiting on the user | Optionally move it from `z.lazy()` to Zod 4 getter-based recursion and infer the type |
+| **`VerificationResultSchema` recursion** | Done 2026-11-05 in `aq-server-common` (uncommitted, with `name`) | The fields are inferred from a base schema; only `upstreamResults` is written out, and the recursion uses a Zod 4 getter. A fully inferred type isn't possible in a published package: TypeScript cuts the recursive type short in the emitted `.d.ts`, so consumers saw the second level of `upstreamResults` as `{}` |
+| **OpenAPI for recursive response schemas** | Found 2026-11-05; not checked against `realtime`'s generated document | For a recursive schema, zod-openapi's `createSchema` returns a `$ref` plus its definition in `components`. `calculateResponseObject` in `aq-server-common`'s `aq-api-decorator.ts` keeps only `.schema`, so the verify endpoints' response schemas probably point at a definition the document doesn't have. Fix: name the schema (`.meta({ id: 'VerificationResult' })`) and register the returned components with the document (Foal's `@ApiDefineSchema`). It affects every endpoint whose response schema is recursive |
 
 ## Risks
 
