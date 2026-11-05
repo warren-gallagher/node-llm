@@ -41,7 +41,7 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M3 | Done 2026-11-04: all seven credentials issued and verified on the local stack |
 | M4a | Done 2026-11-04: whole-chain verification, link integrity, lineage and `validateUpstream` in `realtime`; checked against `demo:run` and the coffee demo |
 | M4b | Done 2026-11-04: `demo:verify` accepts the latest run, and `demo:tamper` catches each case with the expected check |
-| M5 | M5a written 2026-11-05 (aq-did-web-server uncommitted); M5b not started |
+| M5 | M5a done 2026-11-05; M5b written (uncommitted) |
 
 **Log** (newest last):
 
@@ -202,8 +202,15 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - `VerificationResultSchema` in `aq-server-common` gains `name`, and its type is now inferred from the schema, except the recursive `upstreamResults` (see [Follow-ups](#follow-ups)). This is committed and published, and `realtime` sets `name` on every node (committed).
     - `aq-did-web-server` (uncommitted): `dpp.html`, `dte.html` and `dcc.html` are replaced by one `credential.html`. The controller passes the per-type settings (`CREDENTIAL_PAGES`: title, colours, verify path) and the credential as JSON, with every `<` escaped so no claim can close the script element. The page shows the credential's name, a Linked Credentials table (name linked to the page, type, digest), the claims as a collapsible key/value tree, and the Verify result as a tree with every check shown generically and repeats marked. Everything taken from the credential or from the verifier is set as text, not HTML. 4 new specs (38 in all).
     - Checked by rendering the real model passport page in headless Chrome, with a verification tree built by hand from the manifest (the local `realtime` wasn't running).
+- 2026-11-05: M5a committed; the user checked the pages against the live stack.
+- 2026-11-05: M5b written in `packages/chapters/src/credential-demo/` (uncommitted):
+    - `viewer.ts`: a local server on 127.0.0.1 (default port 4400). It serves the page and three JSON endpoints: the runs in the manifest, a run's chain (the platform's verification of its model passport, laid out as a graph, plus the buyer's credential and claim checks), and a check of dropped files by digest.
+    - `viewer-graph.ts`: the layout, done on the server and tested. Each credential appears once, in columns by the longest chain of links from the model passport, so every link points right. A link that skips a column runs in its own lane above the nodes, so no node hides it.
+    - `viewer/index.html` and `viewer/viewer.js`: the page draws the graph as SVG (colour by type, red border when not verified), shows the selected credential's checks, errors and did:web link, and lists the buyer's checks. Dropped files are hashed in the browser with WebCrypto, and only their digests go to the server, which checks each with `fileCheck` in `checks.ts`. `?run=<id>` verifies that run on load. Everything from credentials or the verifier is set as text.
+    - `demo:verify` now labels its tree with the names the platform returns, and no longer fetches each credential.
+    - 7 new tests (45 in all). Checked against the live stack: the latest run's graph renders with all 7 credentials and 9 links, and the real weights, config and dataset digests match while a changed weights digest is caught.
 
-**Next:** the user reviews and commits M5a, then checks the pages against a live `realtime`. Then M5b (`demo:viewer`). Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
+**Next:** the user reviews and commits M5b. M5 is then done. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
 
 ## Environment
 

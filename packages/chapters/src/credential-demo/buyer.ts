@@ -120,43 +120,15 @@ export function harnessVersion(): string {
 // ============================================================================
 
 /**
- * Each credential's own `name`, for every credential in the platform's result. A credential that
- * can't be read keeps no name, and the tree falls back to the name of the link that reached it.
- */
-export async function credentialNames(
-  client: AqClient,
-  result: VerificationResult,
-): Promise<Map<string, string>> {
-  const names = new Map<string, string>();
-  for (const credentialId of credentialIds(result)) {
-    try {
-      const credential = decodeJwtPayload(await client.fetchCredential(credentialId));
-      const name = credential.name ?? credential.credentialSubject?.name;
-      if (typeof name === "string") names.set(credentialId, name);
-    } catch {
-      // Unreadable credentials show up as failures in the tree anyway.
-    }
-  }
-  return names;
-}
-
-function credentialIds(result: VerificationResult, ids = new Set<string>()): Set<string> {
-  ids.add(result.credentialId);
-  for (const child of result.upstreamResults ?? []) credentialIds(child, ids);
-  return ids;
-}
-
-/**
  * The platform's result as a tree, one line per credential, with any check that didn't pass. A
  * credential linked from several places is shown in full once, and marked where it repeats.
  */
 export function printPlatformTree(
   result: VerificationResult,
-  names: Map<string, string>,
   indent = "",
   shown = new Set<string>(),
 ): void {
-  const name = names.get(result.credentialId) ?? result.link?.linkName ?? result.credentialId;
+  const name = result.name ?? result.link?.linkName ?? result.credentialId;
   const status = result.verified ? "VERIFIED" : "NOT VERIFIED";
   if (shown.has(result.credentialId)) {
     console.log(`${indent}${status.padEnd(12)} ${result.credentialType}  ${name}  (shown above)`);
@@ -172,7 +144,7 @@ export function printPlatformTree(
   for (const error of result.errors)
     console.log(`${indent}  error ${error.code}: ${error.message}`);
   for (const child of result.upstreamResults ?? []) {
-    printPlatformTree(child, names, `${indent}  `, shown);
+    printPlatformTree(child, `${indent}  `, shown);
   }
 }
 

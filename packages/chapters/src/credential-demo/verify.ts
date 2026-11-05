@@ -1,7 +1,6 @@
 import {
   allChecks,
   checkpointName,
-  credentialNames,
   pickRun,
   printChecks,
   printPlatformTree,
@@ -34,7 +33,7 @@ async function main(): Promise<void> {
   const reading = await readChain(client, run.passport.credentialId);
 
   console.log("\nPlatform verification, through the whole chain:");
-  printPlatformTree(reading.platform, await credentialNames(client, reading.platform), "  ");
+  printPlatformTree(reading.platform, "  ");
 
   console.log("\nThe buyer's checks:");
   const checks = allChecks(reading, { checkpoint: checkpointName(run), dataset: VERDICT_PATH });

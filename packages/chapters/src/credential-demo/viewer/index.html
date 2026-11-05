@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Credential Viewer</title>
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --card: #ffffff;
+        --text: #24292f;
+        --muted: #6a737d;
+        --border: #d8dee4;
+        --pass: #1a7f37;
+        --pass-bg: #dafbe1;
+        --fail: #cf222e;
+        --fail-bg: #ffebe9;
+        --warn: #9a6700;
+        --edge: #8c959f;
+        --dpp: #6639ba;
+        --dte: #bc4c00;
+        --dcc: #1a7f37;
+        --accent: #0969da;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --card: #161b22;
+          --text: #e6edf3;
+          --muted: #8b949e;
+          --border: #30363d;
+          --pass: #3fb950;
+          --pass-bg: #12261e;
+          --fail: #f85149;
+          --fail-bg: #2d1214;
+          --warn: #d29922;
+          --edge: #6e7681;
+          --dpp: #a371f7;
+          --dte: #f0883e;
+          --dcc: #56d364;
+          --accent: #4493f8;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      }
+      a {
+        color: var(--accent);
+      }
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+        min-width: 0;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-top: 12px;
+      }
+      select,
+      button {
+        font: inherit;
+        padding: 6px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+      }
+      button {
+        cursor: pointer;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+        font-weight: 600;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .badge.pass {
+        color: var(--pass);
+        background: var(--pass-bg);
+      }
+      .badge.fail {
+        color: var(--fail);
+        background: var(--fail-bg);
+      }
+      .graph-scroll {
+        overflow-x: auto;
+      }
+      svg.graph {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+      .node {
+        cursor: pointer;
+      }
+      .node rect.box {
+        fill: var(--card);
+        stroke-width: 2;
+      }
+      .node.selected rect.box {
+        stroke-width: 4;
+      }
+      .node text {
+        fill: var(--text);
+        font-size: 12px;
+      }
+      .node text.type {
+        font-weight: 700;
+        font-size: 11px;
+      }
+      .edge {
+        fill: none;
+        stroke: var(--edge);
+        stroke-width: 1.5;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      .legend span::before {
+        content: '';
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        margin-right: 6px;
+        background: var(--swatch);
+      }
+      .two-columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px;
+      }
+      ul.checks {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      ul.checks li {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 8px;
+        padding: 4px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      ul.checks li:last-child {
+        border-bottom: none;
+      }
+      .status {
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .status.pass {
+        color: var(--pass);
+      }
+      .status.fail {
+        color: var(--fail);
+      }
+      .status.warning,
+      .status.skipped {
+        color: var(--warn);
+      }
+      .detail {
+        color: var(--muted);
+        font-size: 12px;
+        word-break: break-all;
+      }
+      ul.messages li {
+        font-size: 13px;
+      }
+      .messages .error {
+        color: var(--fail);
+      }
+      .messages .warning {
+        color: var(--warn);
+      }
+      .drop-zone {
+        border: 2px dashed var(--border);
+        border-radius: 8px;
+        padding: 24px;
+        text-align: center;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .drop-zone.over {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .note {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 12px;
+      }
+      .error-box {
+        color: var(--fail);
+        background: var(--fail-bg);
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Credential Viewer</h1>
+        <div class="muted">
+          A run's credentials as the platform verifies them, starting from the model passport.
+        </div>
+        <div class="toolbar">
+          <label for="run">Run</label>
+          <select id="run"></select>
+          <button id="verify" type="button">Verify</button>
+          <span id="overall"></span>
+        </div>
+        <div id="model-passport" class="detail"></div>
+      </section>
+
+      <section class="card">
+        <h2>Credential graph</h2>
+        <div id="graph-message" class="muted">Choose a run and click Verify.</div>
+        <div class="graph-scroll"><svg id="graph" class="graph" role="img" aria-label="Credential graph: each credential the model passport links, through the whole chain"></svg></div>
+        <div class="legend">
+          <span style="--swatch: var(--dpp)">DPP: passport</span>
+          <span style="--swatch: var(--dte)">DTE: event</span>
+          <span style="--swatch: var(--dcc)">DCC: conformity or accreditation</span>
+          <span style="--swatch: var(--fail)">Red border: not verified</span>
+        </div>
+      </section>
+
+      <div class="two-columns">
+        <section class="card">
+          <h2 id="selected-title">Selected credential</h2>
+          <div id="selected" class="muted">Click a credential in the graph.</div>
+        </section>
+
+        <section class="card">
+          <h2>The buyer's checks</h2>
+          <ul id="claim-checks" class="checks"></ul>
+          <h2 style="margin-top: 16px">Files</h2>
+          <div id="drop-zone" class="drop-zone">
+            Drop weights.bin, config.json or the dataset here. They are hashed in this browser; only
+            their digests are sent to the local viewer.
+          </div>
+          <ul id="file-checks" class="checks"></ul>
+          <div class="note">
+            Not shown here: rerunning the evaluation (run <code>pnpm demo:verify</code>), and
+            whether each issuer should be trusted for its role, which nothing checks yet.
+          </div>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="/viewer.js"></script>
+  </body>
+</html>

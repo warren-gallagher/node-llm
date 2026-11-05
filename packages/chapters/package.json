@@ -43,6 +43,7 @@
     "demo:run": "tsx src/credential-demo/run.ts",
     "demo:verify": "tsx src/credential-demo/verify.ts",
     "demo:tamper": "tsx src/credential-demo/tamper.ts",
+    "demo:viewer": "tsx src/credential-demo/viewer.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

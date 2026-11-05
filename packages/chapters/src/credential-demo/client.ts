@@ -37,6 +37,8 @@ export interface VerificationResult {
   credentialId: string;
   credentialType: CredentialType;
   issuer: string;
+  /** The credential's own name, or its subject's name when it has none. */
+  name?: string;
   checks: Record<string, VerificationCheck | undefined>;
   /** How the parent credential linked to this one (nested results only). */
   link?: {

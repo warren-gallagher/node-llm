@@ -194,6 +194,37 @@ export function artifactChecks(
   ];
 }
 
+/**
+ * What one file is, judged by its hash alone: the model, a file the model passport lists, or the
+ * dataset. For files checked one at a time, as in `demo:viewer`.
+ */
+export function fileCheck(claims: ChainClaims, file: FileDigest): DemoCheck {
+  const id = niUri(file.sha256);
+  const digest = digestMultibase(file.sha256);
+  const listedAs = claims.modelFiles.find((claimed) => claimed.digestMultibase === digest);
+  const sameName = claims.modelFiles.find((claimed) => claimed.name === file.name);
+  let detail: string;
+  let passed = true;
+  if (id === claims.modelId) {
+    detail = "the model the passport identifies";
+  } else if (listedAs) {
+    detail = `${listedAs.name}, as the model passport lists it`;
+  } else if (id === claims.datasetId) {
+    detail = "the dataset its passport identifies";
+  } else {
+    passed = false;
+    detail = sameName
+      ? `not the ${sameName.name} the model passport lists`
+      : "matches nothing the credentials identify";
+  }
+  return {
+    group: "artifact",
+    name: file.name,
+    passed,
+    detail: `${detail} (sha256 ${file.sha256})`,
+  };
+}
+
 function listed(claims: ChainClaims, file: FileDigest): boolean {
   return claims.modelFiles.some(
     (claimed) =>
