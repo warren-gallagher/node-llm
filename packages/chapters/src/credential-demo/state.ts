@@ -70,6 +70,25 @@ export interface DerivationRecord {
   passport: IssuedCredential;
 }
 
+/** A credentialed thing, kept with the SHA-256 (hex) of the file its credentials describe. */
+export interface HashedCredential {
+  sha256: string;
+  passport: IssuedCredential;
+}
+
+/** The retrieval system's credentials (phase 3), each reused while its file is unchanged. */
+export interface RagRecord {
+  /** Model Publisher's import passports for the models from outside. */
+  gpt2?: HashedCredential;
+  embedder?: HashedCredential;
+  /** The instruction-tuned GPT-2 that answers questions. */
+  generator?: HashedCredential & { fineTuning: IssuedCredential };
+  /** Book Publisher's passport for the document collection. */
+  collection?: HashedCredential;
+  /** Model Deployment Inc.'s index of the admitted passages. */
+  index?: HashedCredential & { indexing: IssuedCredential; file: string };
+}
+
 export interface Manifest {
   /** The platform and tenant the records belong to. */
   apiUrl: string;
@@ -82,6 +101,8 @@ export interface Manifest {
   runs: RunRecord[];
   /** Models derived from the runs' models (phase 2). */
   derivations?: DerivationRecord[];
+  /** The retrieval system (phase 3). */
+  rag?: RagRecord;
 }
 
 /**

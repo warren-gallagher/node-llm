@@ -24,6 +24,10 @@ export const CTX: DemoContext = {
       did: "did:web:ea.dids.example.com",
       name: "Verdict Demo: Evaluators Association",
     },
+    modelDeployer: {
+      did: "did:web:md.dids.example.com",
+      name: "Verdict Demo: Model Deployment Inc.",
+    },
   },
 };
 

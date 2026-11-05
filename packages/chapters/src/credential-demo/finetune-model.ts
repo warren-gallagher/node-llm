@@ -1,11 +1,9 @@
 import { evaluateLoss, formatInput, formatResponse, trainModel } from "@node-llm/core";
-import { encode } from "gpt-tokenizer/encoding/r50k_base";
 import { loadCheckpoint, makeLoaders, saveCheckpoint } from "../ch05-training/shared";
-import { loadInstructionData, loadInstructionSplits } from "../ch07-instruction/shared";
+import { loadInstructionSplits } from "../ch07-instruction/shared";
 import { checkpointName, pickRun } from "./buyer";
 import {
   type DatasetFacts,
-  type DatasetLicence,
   type DemoContext,
   type DerivationFacts,
   datasetDpp,
@@ -22,6 +20,7 @@ import {
   authorityId,
   datasetFacts,
   gitCode,
+  instructionFacts,
   measureEvaluation,
   parentModelFacts,
   printVerification,
@@ -61,17 +60,6 @@ const EPOCHS = 1;
 const BATCH_SIZE = 8;
 const LEARNING_RATE = 5e-5;
 const WEIGHT_DECAY = 0.1;
-
-const INSTRUCTION_DATA = new URL("data/instruction/instruction-data.json", REPO_ROOT);
-const INSTRUCTION_SOURCE_URL =
-  "https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch07/01_main-chapter-code/instruction-data.json";
-const REPOSITORY_LICENCE: DatasetLicence = {
-  id: "https://github.com/rasbt/LLMs-from-scratch/blob/main/LICENSE.txt",
-  name: "Apache License 2.0, as modified in the LLMs-from-scratch repository's LICENSE.txt",
-  rationale:
-    "The repository's licence grants the right to use its contents, which this auditor " +
-    "takes to include training models on the data.",
-};
 
 async function main(): Promise<void> {
   const env = loadDemoEnv();
@@ -190,22 +178,6 @@ async function main(): Promise<void> {
     printVerification(await client.verify(credential.type, credential.credentialId));
   }
   console.log(`\nCheck it as a buyer: pnpm demo:verify ${derivationId}`);
-}
-
-/** Chapter 7's instruction data as a dataset: its file, source, licence and size in tokens. */
-async function instructionFacts(verdict: DatasetFacts): Promise<DatasetFacts> {
-  const entries = await loadInstructionData();
-  const all = entries.map((entry) => formatInput(entry) + formatResponse(entry)).join("\n\n");
-  return {
-    title: "Instruction data (Build a Large Language Model (From Scratch), chapter 7)",
-    description:
-      "The 1,100 instruction-response examples the book's author prepared for chapter 7, as JSON.",
-    file: hashFile(INSTRUCTION_DATA, "application/json"),
-    sourceUrl: INSTRUCTION_SOURCE_URL,
-    tokenCount: encode(all).length,
-    tokenizer: verdict.tokenizer,
-    licence: REPOSITORY_LICENCE,
-  };
 }
 
 /**

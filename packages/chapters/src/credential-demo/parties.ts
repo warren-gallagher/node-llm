@@ -1,7 +1,8 @@
 /**
  * The demo's parties. Each issuing party is an authority on the platform, with its own did:web and
  * signing key. Names carry a prefix so that a lookup by name in a shared tenant can't match an
- * unrelated authority. The buyer (Model Deployment Inc.) only verifies, so it has no authority.
+ * unrelated authority. Model Deployment Inc. is the buyer in phases 1 and 2, where it only verifies;
+ * in phase 3 it runs the retrieval system, and issues its index's credentials and answer records.
  */
 
 export const NAME_PREFIX = "Verdict Demo: ";
@@ -11,7 +12,8 @@ export type PartyKey =
   | "bookAuditor"
   | "modelPublisher"
   | "modelAuditor"
-  | "evaluatorsAssociation";
+  | "evaluatorsAssociation"
+  | "modelDeployer";
 
 /** The two evaluators, each accredited by Evaluators Association. */
 export type AccreditedKey = "bookAuditor" | "modelAuditor";
@@ -62,6 +64,14 @@ export const PARTIES: Record<PartyKey, Party> = {
     role: "Accreditor",
     name: `${NAME_PREFIX}Evaluators Association`,
     description: "Accredits the evaluators and runs the evaluation schemes. (Credential demo)",
+  },
+  modelDeployer: {
+    role: "Model deployer",
+    name: `${NAME_PREFIX}Model Deployment Inc.`,
+    description:
+      "Deploys models, runs the retrieval system and answers questions. (Credential demo)",
+    facility: { slug: "inference-service", name: "Model Deployment Inc. inference service" },
+    country: CA,
   },
 };
 

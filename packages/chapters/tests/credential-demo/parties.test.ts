@@ -9,14 +9,14 @@ import {
 
 describe("credential demo parties", () => {
   it("prefixes every authority name", () => {
-    expect(PARTY_KEYS).toHaveLength(5);
+    expect(PARTY_KEYS).toHaveLength(6);
     for (const key of PARTY_KEYS) {
       expect(PARTIES[key].name.startsWith(NAME_PREFIX)).toBe(true);
     }
   });
 
   it("gives the producers a facility and a country", () => {
-    for (const key of ["bookPublisher", "modelPublisher"] as const) {
+    for (const key of ["bookPublisher", "modelPublisher", "modelDeployer"] as const) {
       expect(PARTIES[key].facility).toBeDefined();
       expect(PARTIES[key].country?.countryCode).toHaveLength(2);
     }

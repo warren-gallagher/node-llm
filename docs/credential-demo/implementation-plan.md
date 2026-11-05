@@ -43,7 +43,9 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M4b | Done 2026-11-04: `demo:verify` accepts the latest run, and `demo:tamper` catches each case with the expected check |
 | M5 | Done 2026-11-05: the did:web pages show claims, links and the verification tree; `demo:viewer` draws the credential graph and checks dropped files |
 | M6 | Done 2026-11-05: `demo:verify` accepts the quantized model by rerunning the quantization |
-| M7 | Written 2026-11-05 (uncommitted); dry runs pass |
+| M7 | Done 2026-11-05: the fine-tuned model is accepted, its claims classified, and both simulated lies caught |
+| M8 | Written 2026-11-05 (uncommitted); dry run passes |
+| M9 | Not started |
 
 **Log** (newest last):
 
@@ -235,7 +237,19 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - Dry runs of `demo:finetune` pass the platform's validation for all five credentials. The seeded fine-tune gave the same weights twice (sha256 `fe710845…033e`); its validation loss on The Verdict is 6.560, against the parent's 6.373.
     - 17 new tests (70 in all).
 
-**Next:** the user runs `pnpm demo:finetune`, then `pnpm demo:verify` and `pnpm demo:tamper` on the derivation, and reviews and commits M7. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
+- 2026-11-05: M7 verified by the user and committed. Phase 2 is complete.
+
+- 2026-11-05: Phase 2 findings added to the Claude Doc. Phase 3 scope agreed; see [Phase 3 decisions](#phase-3-decisions-2026-11-05).
+- 2026-11-05: M8 written in `packages/chapters/src/credential-demo/` (uncommitted, not yet run against the platform):
+    - Model Deployment Inc. is a sixth party (`modelDeployer`, Canada, "inference service" facility). `demo:setup` will create and publish its authority, and its DID needs its own tunnel.
+    - `rag.ts`: the collection file and each passage's digest; admission control (`admitPassages`: only passages a verified collection passport lists, by digest); embedding each passage on its own; the index file; and `compareIndexes` for a rebuild. Embedding is reproducible across processes on this machine (byte-identical vectors), but a passage embedded in a batch differs from the same passage embedded alone by up to 0.018, which is why each passage is embedded on its own.
+    - `claims.ts`: `importedModelDpp` (attests source, revision, published SHA-256 and licence, not how the model was made), `instructionModelDpp`, `collectionDpp`, `indexingDte` and `indexDpp`.
+    - `rag-setup.ts` (`demo:rag-setup [--dry-run]`): import passports for GPT-2 124M (Hugging Face `openai-community/gpt2`; the local file matches its published SHA-256; MIT as the model card lists it) and all-MiniLM-L6-v2 (the Xenova ONNX int8 export at chapter 7's revision; the local file matches its published SHA-256; Apache 2.0; 22,713,216 parameters); the fine-tuning DTE and passport for chapter 7's instruction-tuned GPT-2, recorded after the fact from lesson 5's settings; the collection passport (Book Publisher); admission control, which rejects chapter 7's planted passage; the index, its indexing DTE and passport (Model Deployment Inc.), and a rebuild compared with it. Each credential is reused while its file is unchanged.
+    - 11 new tests (81 in all).
+- 2026-11-05: The first dry run failed: UNTP 0.7.0 requires `producedAtFacility` and `countryOfProduction` on every passport, including an imported model's. Import passports now name the producer and use the publishing repository as the facility: GPT-2 is OpenAI's, in the United States; the embedding model's card doesn't say where it was produced, so its country is `ZZ` ("Unknown Region" in Unicode's locale data), which UNTP's schema accepts. A UNTP gap for the Claude Doc, like the mass fraction for data: a downloaded model may have no known place of production.
+- 2026-11-05: The dry run passes: all seven credentials validate; admission control admits the 12 listed passages and rejects the planted one; the index (12 vectors of 384 dimensions, sha256 `d20ea752…e72c`) rebuilds with a largest difference of 0.
+
+**Next:** the user runs `pnpm demo:rag-setup`, then reviews and commits M8. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
 
 ## Environment
 
@@ -487,6 +501,16 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 - **Inherited and overridden claims are classified from the graph (M7)**, not declared: a claim is inherited when the DCC it cites assessed an ancestor, overrides the parent when it uses the same criterion with its own evidence, and is new otherwise. The buyer applies the Claude Doc's rule: data rights and licence terms may be inherited, evaluations and benchmark scores may not. `demo:verify` and the viewer show the classification. This also closes a gap in `realtime`'s lineage rule, which accepts a DCC that assessed any product in the citing credential's chain, including a parent's evaluation.
 - **New tamper cases (M7):** a DTE that says "quantized" over fine-tuned weights, and quantized weights that don't match a fresh quantization of the parent.
 
+### Phase 3 decisions (2026-11-05)
+
+- **The answering model is chapter 7's instruction-tuned GPT-2 124M** (`checkpoints/gpt2-124m-instruct`). It gets a fine-tuning DTE and passport from the base GPT-2, reusing phase 2's instruction-data credentials.
+- **Models from outside get import passports** from Model Publisher: OpenAI's GPT-2 124M and the all-MiniLM-L6-v2 embedding model at the revision chapter 7 pins. They attest where each file came from and its hash, not how the model was made, and say so.
+- **One passport for the document collection**, listing each passage by its hash, from Book Publisher. Admission control indexes only passages listed in a verified collection passport from the expected publisher, replacing the lesson's hard-coded trusted-source list.
+- **The index** gets an indexing DTE (inputs: the collection and the embedding model) and a passport. A buyer can rebuild it from the admitted passages and compare.
+- **Model Deployment Inc. gets an authority** and issues the index's credentials and the answer records, as the organization running the system. It needs one more ngrok tunnel.
+- **One DTE per answer, for the demo only.** It lets a verifier walk from any single answer back to its sources, but it doesn't scale: a real system answering millions of questions needs another form, such as one signed log per session or a Merkle tree of answers under one credential. The Claude Doc notes the trade-off.
+- **Milestones:** M8 is the documents, the outside models, the answering model, the index and admission control. M9 is the answer records, verifying back from an answer, the failure cases (a planted passage, a changed passage) and the viewer starting from an answer.
+
 ## Milestones
 
 | Milestone | Work | Ends with | Your step |
@@ -499,6 +523,8 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 | M5 | WP4, WP5: `demo:viewer` | Claims and links on the did:web pages; the viewer working | |
 | M6 | Phase 2: quantization (`demo:quantize`), and `demo:verify` for derived models | The buyer reruns the quantization from the parent and gets the passport's hash | Run `demo:quantize`, then `demo:verify` on the derivation |
 | M7 | Phase 2: fine-tuning, the weight comparison, claim classification and the inheritance check, new tamper cases | Each derivation and tamper case checked as expected | |
+| M8 | Phase 3: document collection, outside models, the answering model, the index, admission control | The index is built only from credentialed passages, and a buyer can rebuild it | Add the Model Deployment Inc. tunnel; run `demo:setup`, then the M8 script |
+| M9 | Phase 3: answer records, verifying from an answer, failure cases, the viewer | Each answer verified back to its sources; each failure case caught | |
 
 The demo can be shown to the CTO from M4, as a CLI demo. M5 makes it visual.
 

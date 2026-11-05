@@ -109,7 +109,8 @@ export interface DerivationFacts {
   /** The method and its settings, enough to rerun a deterministic derivation. */
   hyperparameters: object;
   code: { repository: string; commit: string };
-  durationSeconds: number;
+  /** Unknown for a derivation recorded after the fact. */
+  durationSeconds?: number;
 }
 
 export interface EvaluationFacts {
@@ -339,7 +340,7 @@ export function trainingDte(
 /** Model Publisher's record of deriving one model from another, by the hashes of both. */
 export function derivationDte(
   ctx: DemoContext,
-  parent: ModelFacts,
+  parent: Pick<ModelFacts, "name" | "weights" | "parameterCount">,
   derived: ModelFacts,
   derivation: DerivationFacts,
   refs: {
@@ -547,6 +548,232 @@ export function modelDpp(
 }
 
 // ============================================================================
+// Phase 3: retrieval
+// ============================================================================
+
+/** A model from outside the demo: its files, the first being its weights, and where they came from. */
+export interface ImportedModel {
+  name: string;
+  description: string;
+  architecture: string;
+  parameterCount: number;
+  modelConfig: object;
+  files: FileDigest[];
+  source: {
+    /** The repository the files were downloaded from, and the revision. */
+    repository: string;
+    revision: string;
+    /** The SHA-256 the repository publishes for the weights, when it publishes one. */
+    publishedSha256?: string;
+    licence: { id: string; name: string };
+    /** Who produced the files, and where, as far as the publisher says. */
+    producer: { name: string; country: { countryCode: string; countryName: string } };
+  };
+}
+
+/**
+ * Model Publisher's passport for a model it imported rather than built: it attests where the files
+ * came from and their hashes, not how the model was made.
+ */
+export function importedModelDpp(ctx: DemoContext, model: ImportedModel): SignRequest {
+  const [weights] = model.files;
+  if (!weights) throw new Error(`${model.name} has no files`);
+  const verified = model.source.publishedSha256 === weights.sha256;
+  return {
+    name: `Model passport: ${model.name}`,
+    extensions: [extensionContext(ctx.apiUrl)],
+    credentialSubject: {
+      ...productIdentity(model.name, weights),
+      description:
+        `${model.description} Imported from ${model.source.repository} at revision ` +
+        `${model.source.revision}${verified ? ", matching the SHA-256 it publishes" : ""}. ` +
+        "This passport attests where the files came from, not how the model was made.",
+      productCategory: [category(ctx, "model")],
+      // The repository that published the files stands in for the producer's facility.
+      producedAtFacility: { id: model.source.repository, name: model.source.producer.name },
+      countryOfProduction: model.source.producer.country,
+      characteristics: {
+        type: ["ModelCharacteristics"],
+        architecture: model.architecture,
+        parameterCount: model.parameterCount,
+        config: model.modelConfig,
+        files: model.files.map(extensionFile),
+        source: model.source,
+        licence: model.source.licence,
+      },
+    },
+  };
+}
+
+/** The instruction-tuned model that answers questions: fine-tuned from an imported model. */
+export function instructionModelDpp(
+  ctx: DemoContext,
+  model: ModelFacts,
+  refs: {
+    fineTuning: IssuedCredential;
+    parentName: string;
+    parentPassport: IssuedCredential;
+    data: { dataset: DatasetFacts; rights: IssuedCredential };
+  },
+): SignRequest {
+  const builder = ctx.parties.modelPublisher;
+  return {
+    name: `Model passport: ${model.name}`,
+    extensions: [extensionContext(ctx.apiUrl)],
+    credentialSubject: {
+      ...productIdentity(model.name, model.weights),
+      description: model.description,
+      productCategory: [category(ctx, "model")],
+      producedAtFacility: facility(ctx, "modelPublisher"),
+      productionDate: ctx.date,
+      countryOfProduction: PARTIES.modelPublisher.country,
+      characteristics: {
+        type: ["ModelCharacteristics"],
+        architecture: model.architecture,
+        parameterCount: model.parameterCount,
+        config: model.modelConfig,
+        files: [extensionFile(model.weights), extensionFile(model.config)],
+      },
+      relatedDocument: [
+        link(refs.fineTuning, `Fine-tuning of ${refs.parentName}`),
+        link(refs.parentPassport, `Model passport: ${refs.parentName}`),
+      ],
+      performanceClaim: [
+        {
+          ...trainingUseClaim(ctx, builder, refs.data.rights, refs.data.dataset),
+          description: `The data ${refs.parentName} was fine-tuned on`,
+        },
+      ],
+    },
+  };
+}
+
+/** A document collection for retrieval: one file, with each passage listed by its digest. */
+export interface CollectionFacts {
+  title: string;
+  description: string;
+  file: FileDigest;
+  passages: { name: string; mediaType: string; byteLength: number; digestMultibase: string }[];
+  licence: { id: string; name: string };
+}
+
+/** Book Publisher's passport for the document collection the retrieval system may index. */
+export function collectionDpp(ctx: DemoContext, collection: CollectionFacts): SignRequest {
+  return {
+    name: `Collection passport: ${collection.title}`,
+    extensions: [extensionContext(ctx.apiUrl)],
+    credentialSubject: {
+      ...productIdentity(collection.title, collection.file),
+      description: collection.description,
+      productCategory: [category(ctx, "dataset")],
+      producedAtFacility: facility(ctx, "bookPublisher"),
+      productionDate: ctx.date,
+      countryOfProduction: PARTIES.bookPublisher.country,
+      characteristics: {
+        type: ["DatasetCharacteristics"],
+        byteLength: collection.file.byteLength,
+        mediaType: collection.file.mediaType,
+        encoding: "utf-8",
+        licence: collection.licence,
+        files: [extensionFile(collection.file), ...collection.passages],
+      },
+    },
+  };
+}
+
+/** Model Deployment Inc.'s record of embedding the admitted passages into an index. */
+export function indexingDte(
+  ctx: DemoContext,
+  collection: CollectionFacts,
+  embedder: ImportedModel,
+  index: { name: string; file: FileDigest; passageCount: number },
+  run: DerivationFacts,
+  refs: { collectionPassport: IssuedCredential; embedderPassport: IssuedCredential },
+): SignRequest {
+  const deployer = ctx.parties.modelDeployer;
+  const [embedderWeights] = embedder.files;
+  if (!embedderWeights) throw new Error(`${embedder.name} has no files`);
+  return {
+    name: `Indexing: ${index.name}`,
+    extensions: [extensionContext(ctx.apiUrl)],
+    credentialSubject: [
+      {
+        id: home(deployer, `events/indexing/${run.derivationId}`),
+        name: `Indexing of ${collection.title}`,
+        description: `Embeds ${index.passageCount} admitted passages with ${embedder.name}`,
+        eventDate: run.eventDate,
+        activityType: COMMISSIONING,
+        inputProduct: [
+          {
+            product: productRef(collection.title, collection.file),
+            quantity: { value: collection.file.byteLength, unit: "AD" },
+            disposition: "active",
+          },
+          {
+            product: productRef(embedder.name, embedderWeights),
+            quantity: { value: embedder.parameterCount, unit: "C62" },
+            disposition: "active",
+          },
+        ],
+        outputProduct: [
+          {
+            product: productRef(index.name, index.file),
+            quantity: { value: index.file.byteLength, unit: "AD" },
+            disposition: "new",
+          },
+        ],
+        madeAtFacility: facility(ctx, "modelDeployer"),
+        relatedDocument: [
+          link(refs.collectionPassport, `Collection passport: ${collection.title}`),
+          link(refs.embedderPassport, `Model passport: ${embedder.name}`),
+        ],
+        trainingRun: {
+          type: ["TrainingRun"],
+          processType: run.processType,
+          hyperparameters: run.hyperparameters,
+          code: run.code,
+          durationSeconds: run.durationSeconds,
+        },
+      },
+    ],
+  };
+}
+
+/** Model Deployment Inc.'s passport for the index its retrieval system searches. */
+export function indexDpp(
+  ctx: DemoContext,
+  index: { name: string; description: string; file: FileDigest },
+  refs: {
+    indexing: IssuedCredential;
+    collectionPassport: IssuedCredential;
+    collectionTitle: string;
+  },
+): SignRequest {
+  return {
+    name: `Index passport: ${index.name}`,
+    extensions: [extensionContext(ctx.apiUrl)],
+    credentialSubject: {
+      ...productIdentity(index.name, index.file),
+      description: index.description,
+      productCategory: [category(ctx, "dataset")],
+      producedAtFacility: facility(ctx, "modelDeployer"),
+      productionDate: ctx.date,
+      countryOfProduction: PARTIES.modelDeployer.country,
+      characteristics: {
+        type: ["DatasetCharacteristics"],
+        byteLength: index.file.byteLength,
+        mediaType: index.file.mediaType,
+        files: [extensionFile(index.file)],
+      },
+      relatedDocument: [
+        link(refs.indexing, `Indexing of ${refs.collectionTitle}`),
+        link(refs.collectionPassport, `Collection passport: ${refs.collectionTitle}`),
+      ],
+    },
+  };
+}
+
+// ============================================================================
 // Shared pieces
 // ============================================================================
 
@@ -559,7 +786,7 @@ function partyRef(identity: Identity) {
   return { id: identity.did, name: identity.name };
 }
 
-function facility(ctx: DemoContext, key: "bookPublisher" | "modelPublisher") {
+function facility(ctx: DemoContext, key: "bookPublisher" | "modelPublisher" | "modelDeployer") {
   const site = PARTIES[key].facility;
   if (!site) throw new Error(`${key} has no facility`);
   return { id: home(ctx.parties[key], `facilities/${site.slug}`), name: site.name };
