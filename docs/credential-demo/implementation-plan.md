@@ -41,7 +41,9 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M3 | Done 2026-11-04: all seven credentials issued and verified on the local stack |
 | M4a | Done 2026-11-04: whole-chain verification, link integrity, lineage and `validateUpstream` in `realtime`; checked against `demo:run` and the coffee demo |
 | M4b | Done 2026-11-04: `demo:verify` accepts the latest run, and `demo:tamper` catches each case with the expected check |
-| M5 | M5a done 2026-11-05; M5b written (uncommitted) |
+| M5 | Done 2026-11-05: the did:web pages show claims, links and the verification tree; `demo:viewer` draws the credential graph and checks dropped files |
+| M6 | Done 2026-11-05: `demo:verify` accepts the quantized model by rerunning the quantization (uncommitted) |
+| M7 | Not started |
 
 **Log** (newest last):
 
@@ -210,7 +212,20 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - `demo:verify` now labels its tree with the names the platform returns, and no longer fetches each credential.
     - 7 new tests (45 in all). Checked against the live stack: the latest run's graph renders with all 7 credentials and 9 links, and the real weights, config and dataset digests match while a changed weights digest is caught.
 
-**Next:** the user reviews and commits M5b. M5 is then done. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
+- 2026-11-05: M5 done. Phase 1's five milestones are complete.
+- 2026-11-05: Phase 2 scope agreed; see [Phase 2 decisions](#phase-2-decisions-2026-11-05).
+- 2026-11-05: M6 written in `packages/chapters/src/credential-demo/` (uncommitted):
+    - `quantize.ts`: `quantizeWeights` and `dequantizeWeights`, plus checkpoint helpers. A quantized checkpoint holds `config.json` (with the method) and `weights.q8.bin`: each tensor's float32 scale, then its int8 values. On the latest run's model it is deterministic (31 tensors, the same bytes every time, about 0.6 s).
+    - `claims.ts`: `derivationDte` (input: the parent model by hash; output: the derived model; `relatedDocument`: the parent passport), and `modelDpp` takes `derivedFrom`, so a derived passport links its derivation and its parent instead of a training run and the dataset passport. The training-rights claim is carried forward, citing the original rights DCC; the loss claim cites the derived model's own evaluation.
+    - `quantize-model.ts` (`demo:quantize [runId] [--dry-run]`): quantizes, has Model Auditor evaluate the dequantized weights, issues the DTE, the evaluation DCC and the passport, and records a `derivations` entry in the manifest. `--dry-run` signs with `storeCredential=false`, so nothing is published.
+    - `pipeline.ts`: the steps `demo:run` and `demo:quantize` share, moved out of `run.ts` unchanged (authority lookup, git commit, dataset facts, the evaluation measurement, printing).
+    - The buyer handles derived models: `pickModel` takes a run or derivation id; `readChain` finds the dataset passport in the platform's tree by the dataset id the evaluation names, and reads the event that produced the model; a new "derivation" check group reruns the quantization from the parent's weights and compares the result with the passport's id and the DTE's output. `demo:verify`, `demo:tamper` and the viewer use it.
+    - 13 new tests (58 in all).
+    - Dry run against the local stack: all three credentials pass the platform's validation. The quantized model's validation loss is 6.373203, against the parent's 6.372789.
+
+- 2026-11-05: `demo:quantize` issued derivation `2026-11-05T16-25-18Z-int8` (weights sha256 `2116a219…7261`, validation loss 6.373203). All three credentials verify on the platform, and `demo:verify` accepts it: rerunning the quantization from the parent's weights gives the passport's hash.
+
+**Next:** the user reviews and commits M6. Then M7. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
 
 ## Environment
 
@@ -452,6 +467,16 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 - **Pages:** the claims as a collapsed key/value tree, rendered generically; links to other credentials shown by name and linked to their pages, with digests; the Verify result as a tree, one line per credential, every check shown generically, repeats marked.
 - **Viewer:** a hand-laid-out SVG graph (columns by depth, no dependency) built from the verification tree, with each node linked to its did:web page; files dropped on the page are hashed in the browser and compared with the passports. A local server serves the page and forwards `/verify` to `realtime`. The evaluation rerun stays in `demo:verify`, and the page says that trust isn't checked.
 
+### Phase 2 decisions (2026-11-05)
+
+- **Two derivations of the phase 1 model**, at the two ends of how far a derivation claim can be checked:
+    - **Quantization (M6):** int8, one scale per tensor, defined exactly, so a buyer holding the parent's weights reruns it and compares hashes. The quantized model gets a new evaluation, because quantization moves the loss.
+    - **Fine-tuning (M7):** on chapter 7's instruction data, which gets its own rights DCC and dataset passport. It can't be rerun bit for bit, so the buyer compares the weights with the parent's: fine-tuning changes every tensor by unbounded amounts, while quantization changes each value by at most half a rounding step.
+- **Model Publisher derives both models**, so no new authority or tunnel is needed. Book Publisher and Book Auditor issue the second dataset's credentials.
+- **No extension changes.** `TrainingRun.processType` and `hyperparameters` describe a derivation. A derived passport links the derivation DTE and the parent passport, and restates the claims it inherits, citing the original evidence.
+- **Inherited and overridden claims are classified from the graph (M7)**, not declared: a claim is inherited when the DCC it cites assessed an ancestor, overrides the parent when it uses the same criterion with its own evidence, and is new otherwise. The buyer applies the Claude Doc's rule: data rights and licence terms may be inherited, evaluations and benchmark scores may not. `demo:verify` and the viewer show the classification. This also closes a gap in `realtime`'s lineage rule, which accepts a DCC that assessed any product in the citing credential's chain, including a parent's evaluation.
+- **New tamper cases (M7):** a DTE that says "quantized" over fine-tuned weights, and quantized weights that don't match a fresh quantization of the parent.
+
 ## Milestones
 
 | Milestone | Work | Ends with | Your step |
@@ -462,6 +487,8 @@ The demo reuses `loadVerdict`, `makeLoaders` and `saveCheckpoint` from `ch05-tra
 | M4a | WP3 items 3–5 in `realtime`, and the boolean query parameter fix | Full-chain, link-integrity and lineage verification, with unit specs | Review, commit |
 | M4b | WP5: `checks`, `demo:verify`, `demo:tamper` | Each failure case caught by the expected check | Review, commit |
 | M5 | WP4, WP5: `demo:viewer` | Claims and links on the did:web pages; the viewer working | |
+| M6 | Phase 2: quantization (`demo:quantize`), and `demo:verify` for derived models | The buyer reruns the quantization from the parent and gets the passport's hash | Run `demo:quantize`, then `demo:verify` on the derivation |
+| M7 | Phase 2: fine-tuning, the weight comparison, claim classification and the inheritance check, new tamper cases | Each derivation and tamper case checked as expected | |
 
 The demo can be shown to the CTO from M4, as a CLI demo. M5 makes it visual.
 

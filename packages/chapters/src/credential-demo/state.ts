@@ -52,6 +52,24 @@ export interface RunRecord {
   passport: IssuedCredential;
 }
 
+/** A model derived from a run's model, such as its quantized copy. */
+export interface DerivationRecord {
+  derivationId: string;
+  kind: "quantization" | "fine-tuning";
+  /** The run whose model this was derived from. */
+  parentRunId: string;
+  /** Relative to the repository root. */
+  checkpoint: string;
+  /** The file that holds the weights, in the checkpoint. */
+  weightsFile: string;
+  weightsSha256: string;
+  configSha256: string;
+  validationLoss: number;
+  event: IssuedCredential;
+  evaluation: IssuedCredential;
+  passport: IssuedCredential;
+}
+
 export interface Manifest {
   /** The platform and tenant the records belong to. */
   apiUrl: string;
@@ -60,6 +78,8 @@ export interface Manifest {
   accreditations: Partial<Record<AccreditedKey, IssuedCredential>>;
   dataset?: DatasetRecord;
   runs: RunRecord[];
+  /** Models derived from the runs' models (phase 2). */
+  derivations?: DerivationRecord[];
 }
 
 /**

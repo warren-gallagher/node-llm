@@ -83,6 +83,19 @@ export interface TrainingFacts {
   reproduction: { seed: number; prng: string; threads: number; runtime: object; cpu: string };
 }
 
+/** A change made to an existing model to produce a new one, such as quantization. */
+export interface DerivationFacts {
+  derivationId: string;
+  /** ISO date-time the derivation started. */
+  eventDate: string;
+  /** What was done, for example "Quantization (int8)". */
+  processType: string;
+  /** The method and its settings, enough to rerun a deterministic derivation. */
+  hyperparameters: object;
+  code: { repository: string; commit: string };
+  durationSeconds: number;
+}
+
 export interface EvaluationFacts {
   validationLoss: number;
   harness: { name: string; version: string; repository: string; commit: string };
@@ -299,6 +312,59 @@ export function trainingDte(
   };
 }
 
+/** Model Publisher's record of deriving one model from another, by the hashes of both. */
+export function derivationDte(
+  ctx: DemoContext,
+  parent: ModelFacts,
+  derived: ModelFacts,
+  derivation: DerivationFacts,
+  refs: { parentPassport: IssuedCredential },
+): SignRequest {
+  const builder = ctx.parties.modelPublisher;
+  return {
+    name: `${derivation.processType}: ${derived.name}`,
+    extensions: [extensionContext(ctx.apiUrl)],
+    credentialSubject: [
+      {
+        id: home(builder, `events/derivation/${derivation.derivationId}`),
+        name: `${derivation.processType} of ${parent.name}`,
+        description: `Derives ${derived.name} from ${parent.name}`,
+        eventDate: derivation.eventDate,
+        activityType: COMMISSIONING,
+        inputProduct: [
+          {
+            product: productRef(parent.name, parent.weights),
+            quantity: { value: parent.parameterCount, unit: "C62" },
+            // The parent model is read, not used up.
+            disposition: "active",
+          },
+        ],
+        outputProduct: [
+          {
+            product: productRef(derived.name, derived.weights),
+            quantity: { value: derived.parameterCount, unit: "C62" },
+            disposition: "new",
+          },
+        ],
+        madeAtFacility: facility(ctx, "modelPublisher"),
+        relatedDocument: [link(refs.parentPassport, `Model passport: ${parent.name}`)],
+        trainingRun: {
+          type: ["TrainingRun"],
+          processType: derivation.processType,
+          modelConfig: derived.modelConfig,
+          hyperparameters: derivation.hyperparameters,
+          code: derivation.code,
+          durationSeconds: derivation.durationSeconds,
+          quantityBasis: [
+            { productId: niUri(parent.weights.sha256), counts: "parameter" },
+            { productId: niUri(derived.weights.sha256), counts: "parameter" },
+          ],
+        },
+      },
+    ],
+  };
+}
+
 /** Model Auditor's evaluation of the exact weights it hashed. */
 export function evaluationDcc(
   ctx: DemoContext,
@@ -358,12 +424,26 @@ export function modelDpp(
   refs: {
     datasetPassport: IssuedCredential;
     rights: IssuedCredential;
+    /** The event that produced the model: its training run, or the derivation. */
     trainingEvent: IssuedCredential;
     evaluation: IssuedCredential;
+    /** For a derived model: the model it was derived from, and what the derivation was. */
+    derivedFrom?: { parentName: string; parentPassport: IssuedCredential; processType: string };
   },
 ): SignRequest {
   const builder = ctx.parties.modelPublisher;
   const party = PARTIES.modelPublisher;
+  const parent = refs.derivedFrom;
+  // A derived model links its derivation and its parent; the dataset is reached through the parent.
+  const lineage = parent
+    ? [
+        link(refs.trainingEvent, `${parent.processType} of ${parent.parentName}`),
+        link(parent.parentPassport, `Model passport: ${parent.parentName}`),
+      ]
+    : [
+        link(refs.trainingEvent, `Training run of ${model.name}`),
+        link(refs.datasetPassport, `Dataset passport: ${dataset.title}`),
+      ];
 
   return {
     name: `Model passport: ${model.name}`,
@@ -391,14 +471,11 @@ export function modelDpp(
         tokenizer: dataset.tokenizer,
         files: [extensionFile(model.weights), extensionFile(model.config)],
       },
-      relatedDocument: [
-        link(refs.trainingEvent, `Training run of ${model.name}`),
-        link(refs.datasetPassport, `Dataset passport: ${dataset.title}`),
-      ],
+      relatedDocument: lineage,
       performanceClaim: [
         {
           ...trainingUseClaim(ctx, builder, refs.rights),
-          description: `Carried over from the passport of ${dataset.title}`,
+          description: `Carried over from the passport of ${parent ? parent.parentName : dataset.title}`,
         },
         {
           id: home(builder, `claims/validation-loss/${model.weights.sha256}`),

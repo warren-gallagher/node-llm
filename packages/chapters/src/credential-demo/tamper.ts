@@ -37,7 +37,7 @@ const CASES: TamperCase[] = [
     expectedFailures: [],
     note: "the files the credentials describe",
     prepare(run) {
-      return { checkpoint: checkpointName(run), dataset: VERDICT_PATH };
+      return { checkpoint: checkpointName(run), weightsFile: "weights.bin", dataset: VERDICT_PATH };
     },
   },
   {
@@ -50,7 +50,7 @@ const CASES: TamperCase[] = [
       cpSync(checkpointUrl(checkpointName(run)), dir, { recursive: true });
       const weights = new URL("weights.bin", dir);
       writeFileSync(weights, changeOneWeight(readFileSync(weights)));
-      return { checkpoint, dataset: VERDICT_PATH };
+      return { checkpoint, weightsFile: "weights.bin", dataset: VERDICT_PATH };
     },
   },
   {
@@ -62,7 +62,7 @@ const CASES: TamperCase[] = [
       mkdirSync(dir, { recursive: true });
       const dataset = new URL("the-verdict.txt", dir);
       writeFileSync(dataset, changeOneWord(readFileSync(VERDICT_PATH, "utf8")));
-      return { checkpoint: checkpointName(run), dataset };
+      return { checkpoint: checkpointName(run), weightsFile: "weights.bin", dataset };
     },
   },
 ];

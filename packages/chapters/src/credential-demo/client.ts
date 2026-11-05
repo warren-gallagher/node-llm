@@ -39,6 +39,8 @@ export interface VerificationResult {
   issuer: string;
   /** The credential's own name, or its subject's name when it has none. */
   name?: string;
+  /** The subject's identifier: for a passport, its product's id. */
+  subject?: string;
   checks: Record<string, VerificationCheck | undefined>;
   /** How the parent credential linked to this one (nested results only). */
   link?: {
@@ -151,8 +153,18 @@ export class AqClient {
     return authority;
   }
 
-  sign(type: CredentialType, authorityId: string, request: SignRequest): Promise<SignedCredential> {
-    return this.request("POST", `/api/supply-chain/${type}/sign/${authorityId}`, request);
+  /**
+   * Signs a credential. With `store: false` the platform validates and signs it but doesn't publish
+   * it, which makes a dry run.
+   */
+  sign(
+    type: CredentialType,
+    authorityId: string,
+    request: SignRequest,
+    options: { store?: boolean } = {},
+  ): Promise<SignedCredential> {
+    const query = options.store === false ? "?storeCredential=false" : "";
+    return this.request("POST", `/api/supply-chain/${type}/sign/${authorityId}${query}`, request);
   }
 
   /**

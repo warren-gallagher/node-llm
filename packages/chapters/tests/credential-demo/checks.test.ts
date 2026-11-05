@@ -10,11 +10,18 @@ import {
   evaluationRerunCheck,
   LOSS_TOLERANCE,
   modelLinks,
+  quantizationRerunChecks,
   readChainClaims,
 } from "../../src/credential-demo/checks";
-import { datasetDpp, evaluationDcc, modelDpp } from "../../src/credential-demo/claims";
+import {
+  datasetDpp,
+  derivationDte,
+  evaluationDcc,
+  modelDpp,
+  trainingDte,
+} from "../../src/credential-demo/claims";
 import { niUri } from "../../src/credential-demo/hashing";
-import { CTX, DATASET, EVALUATION, issued, MODEL } from "./fixtures";
+import { CTX, DATASET, DERIVATION, DERIVED, EVALUATION, issued, MODEL, TRAINING } from "./fixtures";
 
 const rights = issued("dcc", "rights");
 const datasetPassport = issued("dpp", "dataset");
@@ -49,10 +56,10 @@ describe("credential demo checks", () => {
     expect(() => decodeJwtPayload("not-a-jwt")).toThrow("not a JWT");
   });
 
-  it("finds the dataset passport and the evaluation from the model passport", () => {
+  it("finds the evaluation and the event that produced the model from its passport", () => {
     const links = modelLinks(credentials.model);
-    expect(links.datasetPassport.linkURL).toBe(datasetPassport.credentialId);
     expect(links.evaluation.linkURL).toBe(evaluation.credentialId);
+    expect(links.event?.linkURL).toBe(trainingEvent.credentialId);
   });
 
   it("reads the facts the checks compare", () => {
@@ -140,3 +147,83 @@ describe("credential demo checks", () => {
 function failedNames(checks: { name: string; passed: boolean }[]): string[] {
   return checks.filter((check) => !check.passed).map((check) => check.name);
 }
+
+describe("checking a derived model", () => {
+  const event = {
+    credentialSubject: derivationDte(CTX, MODEL, DERIVED, DERIVATION, {
+      parentPassport: issued("dpp", "parent"),
+    }).credentialSubject,
+  };
+  const derivedClaims = readChainClaims(
+    {
+      credentialSubject: modelDpp(CTX, DATASET, DERIVED, EVALUATION, {
+        datasetPassport,
+        rights,
+        trainingEvent: issued("dte", "derivation"),
+        evaluation,
+        derivedFrom: {
+          parentName: MODEL.name,
+          parentPassport: issued("dpp", "parent"),
+          processType: DERIVATION.processType,
+        },
+      }).credentialSubject,
+    },
+    credentials.dataset,
+    credentials.evaluation,
+    event,
+  );
+
+  /** The derivation the passport's event records; every test here needs it. */
+  function derivationOf(claims: typeof derivedClaims) {
+    if (!claims.derivation) throw new Error("no derivation read");
+    return claims.derivation;
+  }
+
+  it("reads a derivation from an event that made the model from another model", () => {
+    expect(derivedClaims.derivation).toEqual({
+      processType: "Quantization (int8)",
+      hyperparameters: DERIVATION.hyperparameters,
+      parentId: niUri(MODEL.weights.sha256),
+      derivedId: niUri(DERIVED.weights.sha256),
+    });
+  });
+
+  it("reads no derivation from a training run", () => {
+    const training = {
+      credentialSubject: trainingDte(CTX, DATASET, MODEL, TRAINING, { datasetPassport, rights })
+        .credentialSubject,
+    };
+    const trained = readChainClaims(
+      credentials.model,
+      credentials.dataset,
+      credentials.evaluation,
+      training,
+    );
+    expect(trained.derivation).toBeUndefined();
+  });
+
+  it("accepts a quantization that reruns to the passport's model from the named parent", () => {
+    const checks = quantizationRerunChecks(
+      derivationOf(derivedClaims),
+      derivedClaims.modelId,
+      MODEL.weights.sha256,
+      DERIVED.weights.sha256,
+    );
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("catches a different parent, a different result, and a method it can't rerun", () => {
+    const derivation = derivationOf(derivedClaims);
+    const rerun = (parent: string, result: string | undefined) =>
+      failedNames(quantizationRerunChecks(derivation, derivedClaims.modelId, parent, result));
+    expect(rerun("0".repeat(64), DERIVED.weights.sha256)).toEqual([
+      "The derivation starts from the parent weights the buyer holds",
+    ]);
+    expect(rerun(MODEL.weights.sha256, "1".repeat(64))).toEqual([
+      "Rerunning the quantization gives the model in the passport",
+    ]);
+    expect(rerun(MODEL.weights.sha256, undefined)).toEqual([
+      "Rerunning the quantization gives the model in the passport",
+    ]);
+  });
+});

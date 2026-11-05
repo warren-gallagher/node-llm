@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { type ChainReading, readChain } from "./buyer";
+import { type ChainReading, listModels, pickModel, readChain } from "./buyer";
 import { claimChecks, fileCheck } from "./checks";
 import { AqClient } from "./client";
 import { loadDemoEnv } from "./env";
@@ -9,7 +9,7 @@ import { loadManifest, type Manifest } from "./state";
 import { credentialGraph } from "./viewer-graph";
 
 /**
- * Credential demo, the viewer: a local page that draws a run's credential graph from the
+ * Credential demo, the viewer: a local page that draws a model's credential graph from the
  * platform's verification of its model passport, links each credential to its did:web page, and
  * checks files dropped on it against the passports. The browser hashes the files and sends only
  * their digests. The page is served on 127.0.0.1 only; it forwards verification to `realtime`.
@@ -68,22 +68,22 @@ function manifest(): Manifest {
   return loadManifest(env.apiUrl, env.tenantId);
 }
 
-/** The runs in the manifest, newest first. */
+/** The models in the manifest, runs and derivations, newest first. */
 function runs(current: Manifest) {
-  return current.runs
-    .map((run) => ({ runId: run.runId, modelPassport: run.passport.credentialId }))
-    .reverse();
+  return listModels(current).map((model) => ({
+    runId: model.id,
+    modelPassport: model.modelPassport,
+  }));
 }
 
-/** Verifies a run's model passport through the platform, and lays out the result. */
+/** Verifies a model's passport through the platform, and lays out the result. */
 async function chain(runId: string) {
-  const run = manifest().runs.find((r) => r.runId === runId);
-  if (!run) throw new Error(`no run ${runId} in the manifest`);
-  const reading = await readChain(client, run.passport.credentialId);
+  const model = pickModel(manifest(), runId);
+  const reading = await readChain(client, model.passport.credentialId);
   readings.set(runId, reading);
   return {
     runId,
-    modelPassport: run.passport.credentialId,
+    modelPassport: model.passport.credentialId,
     verified: reading.platform.verified,
     graph: credentialGraph(reading.platform),
     checks: [reading.credentialCheck, ...claimChecks(reading.claims)],

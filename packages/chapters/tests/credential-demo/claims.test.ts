@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accreditationDcc,
   datasetDpp,
+  derivationDte,
   evaluationDcc,
   extensionContext,
   modelDpp,
@@ -9,7 +10,17 @@ import {
   trainingDte,
 } from "../../src/credential-demo/claims";
 import { niUri } from "../../src/credential-demo/hashing";
-import { API_URL, CTX, DATASET, EVALUATION, issued, MODEL, TRAINING } from "./fixtures";
+import {
+  API_URL,
+  CTX,
+  DATASET,
+  DERIVATION,
+  DERIVED,
+  EVALUATION,
+  issued,
+  MODEL,
+  TRAINING,
+} from "./fixtures";
 
 const LINK_TYPES = "https://test.uncefact.org/vocabulary/linkTypes/";
 const DATASET_ID = niUri(DATASET.file.sha256);
@@ -162,5 +173,55 @@ describe("credential demo claims", () => {
     expect(trainingUse.evidence).toEqual([linkTo(rights)]);
     expect(loss.evidence).toEqual([linkTo(evaluation)]);
     expect(loss.claimedPerformance[0].measure.value).toBe(EVALUATION.validationLoss);
+  });
+});
+
+describe("credential demo claims for a derived model", () => {
+  const parentPassport = issued("dpp", "parent");
+  const derivationEvent = issued("dte", "derivation");
+  const derivedEvaluation = issued("dcc", "derived-evaluation");
+  const event: Loose = derivationDte(CTX, MODEL, DERIVED, DERIVATION, {
+    parentPassport,
+  }).credentialSubject;
+  const passport: Loose = modelDpp(CTX, DATASET, DERIVED, EVALUATION, {
+    datasetPassport,
+    rights,
+    trainingEvent: derivationEvent,
+    evaluation: derivedEvaluation,
+    derivedFrom: {
+      parentName: MODEL.name,
+      parentPassport,
+      processType: DERIVATION.processType,
+    },
+  }).credentialSubject;
+
+  it("records the derivation from the parent's hash to the derived model's hash", () => {
+    const [made] = event;
+    expect(made.inputProduct[0].product.id).toBe(MODEL_ID);
+    expect(made.inputProduct[0].disposition).toBe("active");
+    expect(made.outputProduct[0].product.id).toBe(niUri(DERIVED.weights.sha256));
+    expect(made.relatedDocument).toEqual([linkTo(parentPassport)]);
+    expect(made.trainingRun).toMatchObject({
+      processType: "Quantization (int8)",
+      hyperparameters: DERIVATION.hyperparameters,
+    });
+  });
+
+  it("links the derivation and the parent passport, not the dataset passport", () => {
+    expect(passport.id).toBe(niUri(DERIVED.weights.sha256));
+    expect(passport.relatedDocument).toEqual([linkTo(derivationEvent), linkTo(parentPassport)]);
+  });
+
+  it("carries the rights claim forward and cites its own evaluation for the loss", () => {
+    const [trainingUse, loss] = passport.performanceClaim;
+    expect(trainingUse.evidence).toEqual([linkTo(rights)]);
+    expect(trainingUse.description).toContain(MODEL.name);
+    expect(loss.evidence).toEqual([linkTo(derivedEvaluation)]);
+  });
+
+  it("uses only URIs for ids and links", () => {
+    for (const uri of [...collectUris(event), ...collectUris(passport)]) {
+      expect(URL.canParse(uri), uri).toBe(true);
+    }
   });
 });

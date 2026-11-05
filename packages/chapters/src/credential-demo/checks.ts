@@ -10,7 +10,7 @@ import { digestMultibase, type FileDigest, niUri } from "./hashing";
  * evaluation.
  */
 
-export type CheckGroup = "credentials" | "claims" | "artifact" | "evaluation";
+export type CheckGroup = "credentials" | "claims" | "artifact" | "evaluation" | "derivation";
 
 export interface DemoCheck {
   group: CheckGroup;
@@ -49,12 +49,24 @@ export interface ChainClaims {
     split: string;
     metric: string;
   };
+  /** Present when the model was derived from another model rather than trained. */
+  derivation?: DerivationClaim;
+}
+
+/** What a derivation event says it did: the method, and the parent and derived models' ids. */
+export interface DerivationClaim {
+  processType: string;
+  hyperparameters: unknown;
+  parentId: string;
+  derivedId: string;
 }
 
 /** The links from a model passport that the buyer follows. */
 export interface ModelLinks {
-  datasetPassport: Link;
+  /** The evaluation the passport's loss claim cites. */
   evaluation: Link;
+  /** The event that produced the model: its training run, or its derivation. */
+  event?: Link;
 }
 
 /** How far a rerun loss may be from the claimed one; covers float differences across machines. */
@@ -78,33 +90,36 @@ export function digestOf(data: string | Uint8Array): string {
 }
 
 /**
- * The model passport's links to the dataset passport (its one `dpp` link) and to the evaluation
- * (the evidence for the claim that carries a measured value).
+ * The model passport's links to the evaluation (the evidence for the claim that carries a measured
+ * value) and to the event that produced the model (its one `dte` link). The dataset passport isn't
+ * linked from a derived model's passport, so the buyer finds it through the evaluation.
  */
 export function modelLinks(modelPassport: Json): ModelLinks {
   const subject = modelPassport.credentialSubject;
-  const datasetLinks = (subject.relatedDocument ?? []).filter(
-    (link: Link) => link.linkType === `${LINK_TYPES}dpp`,
-  );
-  if (datasetLinks.length !== 1) {
-    throw new Error(`expected one dataset passport link, found ${datasetLinks.length}`);
-  }
   const evaluation = lossClaim(modelPassport).evidence?.find(
     (link: Link) => link.linkType === `${LINK_TYPES}dcc`,
   );
   if (!evaluation) throw new Error("the model passport's loss claim cites no DCC");
-  return { datasetPassport: datasetLinks[0], evaluation };
+  const event = (subject.relatedDocument ?? []).find(
+    (link: Link) => link.linkType === `${LINK_TYPES}dte`,
+  );
+  return { evaluation, event };
 }
 
-/** Reads the facts the checks compare from the three credentials. */
+/**
+ * Reads the facts the checks compare from the credentials. `event` is the event that produced the
+ * model; when it made the model from another model, not from the dataset, it is a derivation.
+ */
 export function readChainClaims(
   modelPassport: Json,
   datasetPassport: Json,
   evaluation: Json,
+  event?: Json,
 ): ChainClaims {
   const assessment = evaluation.credentialSubject.conformityAssessment[0];
   const run = assessment.evaluationRun;
   return {
+    derivation: derivationClaim(event, datasetPassport.credentialSubject.id),
     modelId: modelPassport.credentialSubject.id,
     modelFiles: modelPassport.credentialSubject.characteristics?.files ?? [],
     claimedLoss: lossClaim(modelPassport).claimedPerformance[0].measure.value,
@@ -117,6 +132,18 @@ export function readChainClaims(
       split: run.split,
       metric: run.metric,
     },
+  };
+}
+
+function derivationClaim(event: Json, datasetId: string): DerivationClaim | undefined {
+  const made = Array.isArray(event?.credentialSubject) ? event.credentialSubject[0] : undefined;
+  const inputs: string[] = (made?.inputProduct ?? []).map((input: Json) => input.product?.id);
+  if (!made || inputs.length === 0 || inputs.includes(datasetId)) return undefined;
+  return {
+    processType: made.trainingRun?.processType ?? "unknown",
+    hyperparameters: made.trainingRun?.hyperparameters,
+    parentId: inputs[0],
+    derivedId: made.outputProduct?.[0]?.product?.id,
   };
 }
 
@@ -175,7 +202,7 @@ export function artifactChecks(
   return [
     {
       group: "artifact",
-      name: "weights.bin is the model in the passport",
+      name: `${files.weights.name} is the model in the passport`,
       passed: niUri(files.weights.sha256) === claims.modelId && listed(claims, files.weights),
       detail: `sha256 ${files.weights.sha256}`,
     },
@@ -232,6 +259,36 @@ function listed(claims: ChainClaims, file: FileDigest): boolean {
       claimed.byteLength === file.byteLength &&
       claimed.digestMultibase === digestMultibase(file.sha256),
   );
+}
+
+/**
+ * Rerunning a quantization from the parent's weights gives the derived model. `rerunSha256` is
+ * undefined when the derivation names a method the buyer can't rerun.
+ */
+export function quantizationRerunChecks(
+  derivation: DerivationClaim,
+  modelId: string,
+  parentSha256: string,
+  rerunSha256: string | undefined,
+): DemoCheck[] {
+  const rerunId = rerunSha256 === undefined ? undefined : niUri(rerunSha256);
+  return [
+    {
+      group: "derivation",
+      name: "The derivation starts from the parent weights the buyer holds",
+      passed: niUri(parentSha256) === derivation.parentId,
+      detail: `parent sha256 ${parentSha256}`,
+    },
+    {
+      group: "derivation",
+      name: "Rerunning the quantization gives the model in the passport",
+      passed: rerunId !== undefined && rerunId === modelId && rerunId === derivation.derivedId,
+      detail:
+        rerunSha256 === undefined
+          ? `can't rerun "${derivation.processType}" with these settings`
+          : `rerun sha256 ${rerunSha256}`,
+    },
+  ];
 }
 
 /** Rerunning the named evaluation on the buyer's files gives the claimed loss. */

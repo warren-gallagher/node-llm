@@ -1,6 +1,7 @@
 import type {
   DatasetFacts,
   DemoContext,
+  DerivationFacts,
   EvaluationFacts,
   ModelFacts,
   TrainingFacts,
@@ -65,6 +66,28 @@ export const MODEL: ModelFacts = {
     byteLength: 1234,
     sha256: "c0ffee".padEnd(64, "1"),
   },
+};
+
+/** The model above, quantized to int8. */
+export const DERIVED: ModelFacts = {
+  ...MODEL,
+  name: `${MODEL.name} (int8)`,
+  architecture: "GPT-2 (int8 weights)",
+  weights: {
+    name: "weights.q8.bin",
+    mediaType: "application/octet-stream",
+    byteLength: 13_313_276,
+    sha256: "2116a219".padEnd(64, "0"),
+  },
+};
+
+export const DERIVATION: DerivationFacts = {
+  derivationId: "2026-11-05T12-00-00Z-int8",
+  eventDate: "2026-11-05T12:00:00.000Z",
+  processType: "Quantization (int8)",
+  hyperparameters: { method: "symmetric int8, one scale per tensor", bits: 8 },
+  code: { repository: "https://github.com/example/node-llm", commit: "e".repeat(40) },
+  durationSeconds: 0.6,
 };
 
 export const TRAINING: TrainingFacts = {
