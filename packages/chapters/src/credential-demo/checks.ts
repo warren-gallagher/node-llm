@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { WeightChangeProfile } from "./forensics";
 import { digestMultibase, type FileDigest, niUri } from "./hashing";
 
 /**
@@ -289,6 +290,130 @@ export function quantizationRerunChecks(
           : `rerun sha256 ${rerunSha256}`,
     },
   ];
+}
+
+/**
+ * The difference between the parent's weights and the derived model's fits the claimed
+ * derivation: a quantization moves no value beyond half a rounding step, and a fine-tune moves
+ * values further in most tensors. Undefined for derivations it has no expectation for.
+ */
+export function weightComparisonCheck(
+  derivation: DerivationClaim,
+  profile: WeightChangeProfile,
+): DemoCheck | undefined {
+  const detail =
+    `${profile.beyondRounding} of ${profile.tensors} tensors moved beyond half a rounding step, ` +
+    `${profile.withinRounding} within it, ${profile.unchanged} unchanged; largest relative ` +
+    `change ${profile.largestRelativeChange.toExponential(1)}`;
+  if (derivation.processType.startsWith("Quantization")) {
+    return {
+      group: "derivation",
+      name: "The weight changes fit a quantization",
+      passed: profile.beyondRounding === 0 && profile.unchanged < profile.tensors,
+      detail,
+    };
+  }
+  if (derivation.processType.startsWith("Fine-tuning")) {
+    return {
+      group: "derivation",
+      name: "The weight changes fit a fine-tune",
+      passed: profile.beyondRounding > profile.tensors / 2,
+      detail,
+    };
+  }
+  return undefined;
+}
+
+// ============================================================================
+// Which claims a derived model inherits
+// ============================================================================
+
+/**
+ * Where a derived passport's claim comes from, judged against the parent's passport:
+ * - inherited: the parent makes a claim citing the same evidence;
+ * - overrides: otherwise, the parent makes a claim against the same criterion that the derived
+ *   passport doesn't inherit, so this claim replaces it;
+ * - new: neither.
+ */
+export type ClaimOrigin = "inherited" | "overrides" | "new";
+
+export interface ClassifiedClaim {
+  name: string;
+  origin: ClaimOrigin;
+  /** The URLs of the credentials the claim cites. */
+  evidence: string[];
+  /** The parent's claim it inherits or overrides. */
+  parentClaim?: string;
+}
+
+/** Classifies each claim in a derived model's passport against its parent's passport. */
+export function classifyClaims(modelPassport: Json, parentPassport: Json): ClassifiedClaim[] {
+  const claims: Json[] = modelPassport.credentialSubject.performanceClaim ?? [];
+  const parentClaims: Json[] = parentPassport.credentialSubject.performanceClaim ?? [];
+  const inheritedFrom = new Map<Json, Json>();
+  for (const claim of claims) {
+    const source = parentClaims.find((parent) => overlaps(evidenceOf(parent), evidenceOf(claim)));
+    if (source) inheritedFrom.set(claim, source);
+  }
+  const inheritedParents = new Set(inheritedFrom.values());
+
+  return claims.map((claim) => {
+    const evidence = evidenceOf(claim);
+    const source = inheritedFrom.get(claim);
+    if (source)
+      return { name: claim.name, origin: "inherited", evidence, parentClaim: source.name };
+    const replaced = parentClaims.find(
+      (parent) => !inheritedParents.has(parent) && overlaps(criteriaOf(parent), criteriaOf(claim)),
+    );
+    return replaced
+      ? { name: claim.name, origin: "overrides", evidence, parentClaim: replaced.name }
+      : { name: claim.name, origin: "new", evidence };
+  });
+}
+
+/**
+ * A derived model may inherit claims about its inputs, such as data rights, but not claims about
+ * its parent's behaviour: any change to the weights can change that. So no inherited claim may
+ * rest on a DCC that assessed the parent model. `assessed` maps each cited DCC to the products it
+ * assessed.
+ */
+export function inheritanceCheck(
+  classified: ClassifiedClaim[],
+  assessed: Record<string, string[]>,
+  parentId: string,
+): DemoCheck {
+  const inherited = classified.filter((claim) => claim.origin === "inherited");
+  const aboutParent = inherited.filter((claim) =>
+    claim.evidence.some((url) => assessed[url]?.includes(parentId)),
+  );
+  return {
+    group: "claims",
+    name: "No inherited claim rests on an assessment of the parent model",
+    passed: aboutParent.length === 0,
+    detail:
+      aboutParent.length === 0
+        ? `${inherited.length} inherited claim(s), none about the parent's behaviour`
+        : `inherited from the parent's own assessment: ${aboutParent.map((c) => c.name).join(", ")}`,
+  };
+}
+
+function evidenceOf(claim: Json): string[] {
+  return (claim.evidence ?? []).map((link: Link) => link.linkURL);
+}
+
+function criteriaOf(claim: Json): string[] {
+  return (claim.referenceCriteria ?? []).map((criterion: Json) => criterion.id);
+}
+
+function overlaps(a: string[], b: string[]): boolean {
+  return a.some((item) => b.includes(item));
+}
+
+/** The products a DCC assessed. */
+export function assessedProducts(dcc: Json): string[] {
+  return (dcc.credentialSubject?.conformityAssessment ?? []).flatMap((assessment: Json) =>
+    (assessment.assessedProduct ?? []).map((item: Json) => item.product?.id),
+  );
 }
 
 /** Rerunning the named evaluation on the buyer's files gives the claimed loss. */

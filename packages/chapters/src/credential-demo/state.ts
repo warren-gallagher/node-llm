@@ -77,6 +77,8 @@ export interface Manifest {
   authorities: Partial<Record<PartyKey, AuthorityRecord>>;
   accreditations: Partial<Record<AccreditedKey, IssuedCredential>>;
   dataset?: DatasetRecord;
+  /** The data the fine-tuned models were trained on (phase 2). */
+  fineTuningDataset?: DatasetRecord;
   runs: RunRecord[];
   /** Models derived from the runs' models (phase 2). */
   derivations?: DerivationRecord[];

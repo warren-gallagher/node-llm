@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { checkpointName, pickRun } from "./buyer";
 import {
   type DemoContext,
@@ -16,6 +15,7 @@ import {
   datasetFacts,
   gitCode,
   measureEvaluation,
+  parentModelFacts,
   printVerification,
 } from "./pipeline";
 import { loadQuantized, QUANTIZATION, QUANTIZED_WEIGHTS, quantizeCheckpoint } from "./quantize";
@@ -24,7 +24,6 @@ import {
   type IssuedCredential,
   loadManifest,
   partyIdentities,
-  type RunRecord,
   saveManifest,
   toIssued,
 } from "./state";
@@ -66,7 +65,7 @@ async function main(): Promise<void> {
   };
   const code = gitCode();
   const dataset = datasetFacts();
-  const parent = parentFacts(parentRun);
+  const parent = parentModelFacts(parentRun);
 
   // 1. Quantize, as Model Publisher.
   const derivationId = `${new Date().toISOString().slice(0, 19).replaceAll(":", "-")}Z-int8`;
@@ -162,25 +161,6 @@ async function main(): Promise<void> {
   console.log(`\nCheck it as a buyer: pnpm demo:verify ${derivationId}`);
 }
 
-/** The parent model as its passport described it, rebuilt from its checkpoint. */
-function parentFacts(run: RunRecord): ModelFacts {
-  const dir = new URL(`${run.checkpoint}/`, REPO_ROOT);
-  const weights = hashFile(new URL("weights.bin", dir), "application/octet-stream");
-  if (weights.sha256 !== run.weightsSha256) {
-    throw new Error(`${run.checkpoint}/weights.bin isn't the model run ${run.runId} trained`);
-  }
-  const saved = JSON.parse(readFileSync(new URL("config.json", dir), "utf8"));
-  return {
-    name: `Verdict GPT ${run.runId}`,
-    description: "The parent model.",
-    architecture: "GPT-2",
-    parameterCount: parameterCount(saved.shapes),
-    modelConfig: saved.config,
-    weights,
-    config: hashFile(new URL("config.json", dir), "application/json"),
-  };
-}
-
 /** The quantized model: the parent's architecture and size, in new files. */
 function derivedFacts(parent: ModelFacts, checkpoint: string): ModelFacts {
   const dir = new URL(`checkpoints/${checkpoint}/`, REPO_ROOT);
@@ -195,10 +175,6 @@ function derivedFacts(parent: ModelFacts, checkpoint: string): ModelFacts {
     weights: hashFile(new URL(QUANTIZED_WEIGHTS, dir), "application/octet-stream"),
     config: hashFile(new URL("config.json", dir), "application/json"),
   };
-}
-
-function parameterCount(shapes: number[][]): number {
-  return shapes.reduce((sum, shape) => sum + shape.reduce((a, b) => a * b, 1), 0);
 }
 
 main().catch((error) => {

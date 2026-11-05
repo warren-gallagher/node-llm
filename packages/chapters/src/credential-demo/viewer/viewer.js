@@ -26,6 +26,8 @@ const graphMessage = document.getElementById("graph-message");
 const selectedTitle = document.getElementById("selected-title");
 const selected = document.getElementById("selected");
 const claimChecks = document.getElementById("claim-checks");
+const modelClaimsSection = document.getElementById("model-claims-section");
+const modelClaims = document.getElementById("model-claims");
 const fileChecks = document.getElementById("file-checks");
 const dropZone = document.getElementById("drop-zone");
 
@@ -92,6 +94,7 @@ async function verify() {
     );
     drawGraph(current.graph);
     showChecks(claimChecks, current.checks);
+    showClaims(current.claims);
     fileChecks.replaceChildren();
     select(current.graph.nodes[0]);
   } catch (error) {
@@ -244,6 +247,28 @@ function showChecks(list, checks) {
           check.passed ? "PASS" : "FAIL",
         ),
         el("span", {}, check.name, el("div", { class: "detail" }, check.detail)),
+      ),
+    ),
+  );
+}
+
+/** A derived model's claims: inherited from its parent, overriding one of the parent's, or new. */
+function showClaims(claims) {
+  modelClaimsSection.hidden = claims.length === 0;
+  modelClaims.replaceChildren(
+    ...claims.map((claim) =>
+      el(
+        "li",
+        {},
+        el("span", { class: "origin" }, claim.origin.toUpperCase()),
+        el(
+          "span",
+          {},
+          claim.name,
+          claim.parentClaim
+            ? el("div", { class: "detail" }, `parent's claim: ${claim.parentClaim}`)
+            : null,
+        ),
       ),
     ),
   );

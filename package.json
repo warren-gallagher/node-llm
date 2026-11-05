@@ -23,6 +23,7 @@
     "demo:run": "pnpm --filter @node-llm/chapters demo:run",
     "demo:verify": "pnpm --filter @node-llm/chapters demo:verify",
     "demo:tamper": "pnpm --filter @node-llm/chapters demo:tamper",
+    "demo:finetune": "pnpm --filter @node-llm/chapters demo:finetune",
     "demo:quantize": "pnpm --filter @node-llm/chapters demo:quantize",
     "demo:viewer": "pnpm --filter @node-llm/chapters demo:viewer",
     "playground": "pnpm --filter @node-llm/playground dev"

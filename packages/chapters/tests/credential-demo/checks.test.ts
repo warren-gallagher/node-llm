@@ -1,23 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
   artifactChecks,
+  assessedProducts,
   changeOneWeight,
   changeOneWord,
   claimChecks,
+  classifyClaims,
   credentialDigestCheck,
   decodeJwtPayload,
   digestOf,
   evaluationRerunCheck,
+  inheritanceCheck,
   LOSS_TOLERANCE,
   modelLinks,
   quantizationRerunChecks,
   readChainClaims,
+  weightComparisonCheck,
 } from "../../src/credential-demo/checks";
 import {
   datasetDpp,
   derivationDte,
   evaluationDcc,
   modelDpp,
+  rightsDcc,
   trainingDte,
 } from "../../src/credential-demo/claims";
 import { niUri } from "../../src/credential-demo/hashing";
@@ -225,5 +230,127 @@ describe("checking a derived model", () => {
     expect(rerun(MODEL.weights.sha256, undefined)).toEqual([
       "Rerunning the quantization gives the model in the passport",
     ]);
+  });
+});
+
+describe("the weight comparison", () => {
+  const quantization = {
+    processType: "Quantization (int8)",
+    hyperparameters: {},
+    parentId: "ni:///p",
+    derivedId: "ni:///d",
+  };
+  const fineTuning = { ...quantization, processType: "Fine-tuning (instruction data)" };
+  const profile = (beyond: number, within: number) => ({
+    tensors: 31,
+    unchanged: 31 - beyond - within,
+    withinRounding: within,
+    beyondRounding: beyond,
+    largestRelativeChange: 0.01,
+  });
+
+  it("expects a quantization to move nothing beyond rounding", () => {
+    expect(weightComparisonCheck(quantization, profile(0, 31))?.passed).toBe(true);
+    expect(weightComparisonCheck(quantization, profile(29, 2))?.passed).toBe(false);
+    expect(weightComparisonCheck(quantization, profile(0, 0))?.passed).toBe(false);
+  });
+
+  it("expects a fine-tune to move most tensors beyond rounding", () => {
+    expect(weightComparisonCheck(fineTuning, profile(29, 2))?.passed).toBe(true);
+    expect(weightComparisonCheck(fineTuning, profile(0, 31))?.passed).toBe(false);
+  });
+
+  it("has no expectation for other derivations", () => {
+    expect(weightComparisonCheck({ ...quantization, processType: "Merging" }, profile(1, 1))).toBe(
+      undefined,
+    );
+  });
+});
+
+// The builders return plain objects; tests read them loosely.
+// biome-ignore lint/suspicious/noExplicitAny: test access into built claims
+type Loose = any;
+
+describe("classifying a derived model's claims", () => {
+  const verdictRights = issued("dcc", "rights");
+  const parentEvaluation = issued("dcc", "parent-evaluation");
+  const derivedEvaluation = issued("dcc", "derived-evaluation");
+  const instructionRights = issued("dcc", "instruction-rights");
+  const instructions = {
+    ...DATASET,
+    title: "Instruction data",
+    file: { ...DATASET.file, name: "instruction-data.json", sha256: "7e09".padEnd(64, "0") },
+  };
+  const parent: Loose = {
+    credentialSubject: modelDpp(CTX, DATASET, MODEL, EVALUATION, {
+      datasetPassport,
+      rights: verdictRights,
+      trainingEvent,
+      evaluation: parentEvaluation,
+    }).credentialSubject,
+  };
+  const fineTuned: Loose = {
+    credentialSubject: modelDpp(CTX, DATASET, DERIVED, EVALUATION, {
+      datasetPassport,
+      rights: verdictRights,
+      trainingEvent: issued("dte", "fine-tuning"),
+      evaluation: derivedEvaluation,
+      derivedFrom: {
+        parentName: MODEL.name,
+        parentPassport: issued("dpp", "parent"),
+        processType: "Fine-tuning",
+        data: { dataset: instructions, rights: instructionRights },
+      },
+    }).credentialSubject,
+  };
+  const assessed = {
+    [verdictRights.credentialId]: [niUri(DATASET.file.sha256)],
+    [instructionRights.credentialId]: [niUri(instructions.file.sha256)],
+    [parentEvaluation.credentialId]: [niUri(MODEL.weights.sha256)],
+    [derivedEvaluation.credentialId]: [niUri(DERIVED.weights.sha256)],
+  };
+
+  it("finds the inherited rights, the new data's rights and the overriding loss claim", () => {
+    expect(
+      classifyClaims(fineTuned, parent).map(({ origin, parentClaim }) => ({ origin, parentClaim })),
+    ).toEqual([
+      { origin: "inherited", parentClaim: `Training use permitted: ${DATASET.title}` },
+      { origin: "new", parentClaim: undefined },
+      { origin: "overrides", parentClaim: "Validation loss" },
+    ]);
+  });
+
+  it("accepts inheriting claims about the data", () => {
+    const check = inheritanceCheck(
+      classifyClaims(fineTuned, parent),
+      assessed,
+      niUri(MODEL.weights.sha256),
+    );
+    expect(check.passed).toBe(true);
+  });
+
+  it("refuses inheriting the parent's evaluation", () => {
+    const [rights, , loss] = fineTuned.credentialSubject.performanceClaim;
+    const inheritsEvaluation = {
+      credentialSubject: {
+        ...fineTuned.credentialSubject,
+        performanceClaim: [
+          rights,
+          { ...loss, evidence: parent.credentialSubject.performanceClaim[1].evidence },
+        ],
+      },
+    };
+    const classified = classifyClaims(inheritsEvaluation, parent);
+    expect(classified[1]).toMatchObject({ origin: "inherited", parentClaim: "Validation loss" });
+    const check = inheritanceCheck(classified, assessed, niUri(MODEL.weights.sha256));
+    expect(check).toMatchObject({ passed: false });
+    expect(check.detail).toContain("Validation loss");
+  });
+
+  it("reads the products a DCC assessed", () => {
+    const dcc = {
+      credentialSubject: rightsDcc(CTX, instructions, issued("dcc", "acc")).credentialSubject,
+    };
+    expect(assessedProducts(dcc)).toEqual([niUri(instructions.file.sha256)]);
   });
 });

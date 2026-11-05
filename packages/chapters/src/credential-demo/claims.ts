@@ -58,7 +58,23 @@ export interface DatasetFacts {
   sourceUrl: string;
   tokenCount: number;
   tokenizer: Tokenizer;
+  /** The terms the data is under; public domain when not given. */
+  licence?: DatasetLicence;
 }
+
+/** A dataset's licence, and why the rights auditor finds it permits training. */
+export interface DatasetLicence {
+  id: string;
+  name: string;
+  /** The auditor's reason the licence permits training, one sentence. */
+  rationale: string;
+}
+
+const PUBLIC_DOMAIN_LICENCE: DatasetLicence = {
+  id: "https://creativecommons.org/publicdomain/mark/1.0/",
+  name: "Public Domain Mark 1.0",
+  rationale: "The work is in the public domain, so it may be used to train models.",
+};
 
 export interface ModelFacts {
   name: string;
@@ -170,6 +186,7 @@ export function rightsDcc(
   const auditor = ctx.parties.bookAuditor;
   const scheme = schemes(ctx).rights;
   const id = home(auditor, `attestations/training-rights/${dataset.file.sha256}`);
+  const licence = dataset.licence ?? PUBLIC_DOMAIN_LICENCE;
 
   return {
     name: `Training rights: ${dataset.title}`,
@@ -186,18 +203,23 @@ export function rightsDcc(
         {
           id: `${id}#assessment`,
           name: "Training-use rights",
-          description: "The work is in the public domain, so it may be used to train models.",
+          description: licence.rationale,
           assessmentCriteria: [rightsCriterion(ctx)],
           assessmentDate: ctx.date,
-          assessedPerformance: [
-            { score: { code: "permitted", definition: `Public domain (${PUBLIC_DOMAIN.name})` } },
-          ],
+          assessedPerformance: [{ score: { code: "permitted", definition: licence.name } }],
           assessedProduct: [
             { product: productRef(dataset.title, dataset.file), idVerifiedByCAB: true },
           ],
           conformityTopic: [topics(ctx).trainingRights],
           evidence: [
-            { linkURL: dataset.sourceUrl, linkName: "Source text", mediaType: "text/plain" },
+            {
+              linkURL: dataset.sourceUrl,
+              linkName: "Source data",
+              mediaType: dataset.file.mediaType,
+            },
+            ...(dataset.licence
+              ? [{ linkURL: licence.id, linkName: licence.name, mediaType: "text/plain" }]
+              : []),
           ],
           conformance: true,
         },
@@ -240,14 +262,16 @@ export function datasetDpp(
       characteristics: {
         type: ["DatasetCharacteristics"],
         byteLength: dataset.file.byteLength,
-        mediaType: "text/plain",
+        mediaType: dataset.file.mediaType,
         encoding: "utf-8",
         sourceURL: dataset.sourceUrl,
-        licence: PUBLIC_DOMAIN,
+        licence: dataset.licence
+          ? { id: dataset.licence.id, name: dataset.licence.name }
+          : PUBLIC_DOMAIN,
         tokenCounts: [{ tokenizer: dataset.tokenizer, count: dataset.tokenCount }],
         files: [extensionFile(dataset.file)],
       },
-      performanceClaim: [trainingUseClaim(ctx, publisher, rights)],
+      performanceClaim: [trainingUseClaim(ctx, publisher, rights, dataset)],
     },
   };
 }
@@ -318,9 +342,14 @@ export function derivationDte(
   parent: ModelFacts,
   derived: ModelFacts,
   derivation: DerivationFacts,
-  refs: { parentPassport: IssuedCredential },
+  refs: {
+    parentPassport: IssuedCredential;
+    /** For a fine-tune: the data it trained on, with its passport and rights verification. */
+    data?: { dataset: DatasetFacts; passport: IssuedCredential; rights: IssuedCredential };
+  },
 ): SignRequest {
   const builder = ctx.parties.modelPublisher;
+  const data = refs.data;
   return {
     name: `${derivation.processType}: ${derived.name}`,
     extensions: [extensionContext(ctx.apiUrl)],
@@ -338,6 +367,15 @@ export function derivationDte(
             // The parent model is read, not used up.
             disposition: "active",
           },
+          ...(data
+            ? [
+                {
+                  product: productRef(data.dataset.title, data.dataset.file),
+                  quantity: { value: data.dataset.file.byteLength, unit: "AD" },
+                  disposition: "active",
+                },
+              ]
+            : []),
         ],
         outputProduct: [
           {
@@ -347,7 +385,15 @@ export function derivationDte(
           },
         ],
         madeAtFacility: facility(ctx, "modelPublisher"),
-        relatedDocument: [link(refs.parentPassport, `Model passport: ${parent.name}`)],
+        relatedDocument: [
+          link(refs.parentPassport, `Model passport: ${parent.name}`),
+          ...(data
+            ? [
+                link(data.passport, `Dataset passport: ${data.dataset.title}`),
+                link(data.rights, `Training rights: ${data.dataset.title}`),
+              ]
+            : []),
+        ],
         trainingRun: {
           type: ["TrainingRun"],
           processType: derivation.processType,
@@ -427,8 +473,16 @@ export function modelDpp(
     /** The event that produced the model: its training run, or the derivation. */
     trainingEvent: IssuedCredential;
     evaluation: IssuedCredential;
-    /** For a derived model: the model it was derived from, and what the derivation was. */
-    derivedFrom?: { parentName: string; parentPassport: IssuedCredential; processType: string };
+    /**
+     * For a derived model: the model it was derived from, what the derivation was, and for a
+     * fine-tune the data it added, whose rights the passport claims as well.
+     */
+    derivedFrom?: {
+      parentName: string;
+      parentPassport: IssuedCredential;
+      processType: string;
+      data?: { dataset: DatasetFacts; rights: IssuedCredential };
+    };
   },
 ): SignRequest {
   const builder = ctx.parties.modelPublisher;
@@ -455,14 +509,7 @@ export function modelDpp(
       producedAtFacility: facility(ctx, "modelPublisher"),
       productionDate: ctx.date,
       countryOfProduction: party.country,
-      materialProvenance: [
-        {
-          name: dataset.title,
-          originCountry: { countryCode: "US", countryName: "United States of America" },
-          materialType: category(ctx, "dataset"),
-          massFraction: 1,
-        },
-      ],
+      materialProvenance: materials(ctx, dataset, parent?.data?.dataset),
       characteristics: {
         type: ["ModelCharacteristics"],
         architecture: model.architecture,
@@ -474,9 +521,17 @@ export function modelDpp(
       relatedDocument: lineage,
       performanceClaim: [
         {
-          ...trainingUseClaim(ctx, builder, refs.rights),
+          ...trainingUseClaim(ctx, builder, refs.rights, dataset),
           description: `Carried over from the passport of ${parent ? parent.parentName : dataset.title}`,
         },
+        ...(parent?.data
+          ? [
+              {
+                ...trainingUseClaim(ctx, builder, parent.data.rights, parent.data.dataset),
+                description: `The data ${parent.parentName} was fine-tuned on`,
+              },
+            ]
+          : []),
         {
           id: home(builder, `claims/validation-loss/${model.weights.sha256}`),
           name: "Validation loss",
@@ -516,6 +571,29 @@ function category(ctx: DemoContext, code: "dataset" | "model") {
     name: code === "dataset" ? "Dataset" : "Machine learning model",
     schemeId: `${ctx.apiUrl}${EXTENSION_PATH}categories.json`,
     schemeName: "AI model extension product categories",
+  };
+}
+
+/**
+ * The data a model was made from. UNTP requires a mass fraction for each material; data has no
+ * mass, so with fine-tuning data as well, each dataset's fraction is its share of the two
+ * datasets' token counts (rounded so the two add up to 1).
+ */
+function materials(ctx: DemoContext, dataset: DatasetFacts, fineTuning?: DatasetFacts) {
+  if (!fineTuning) return [{ ...material(ctx, dataset), massFraction: 1 }];
+  const share =
+    Math.round((dataset.tokenCount / (dataset.tokenCount + fineTuning.tokenCount)) * 1e4) / 1e4;
+  return [
+    { ...material(ctx, dataset), massFraction: share },
+    { ...material(ctx, fineTuning), massFraction: Math.round((1 - share) * 1e4) / 1e4 },
+  ];
+}
+
+function material(ctx: DemoContext, data: DatasetFacts) {
+  return {
+    name: data.title,
+    originCountry: { countryCode: "US", countryName: "United States of America" },
+    materialType: category(ctx, "dataset"),
   };
 }
 
@@ -609,10 +687,15 @@ function endorsement(ctx: DemoContext, accreditation: IssuedCredential) {
   };
 }
 
-function trainingUseClaim(ctx: DemoContext, claimant: Identity, rights: IssuedCredential) {
+function trainingUseClaim(
+  ctx: DemoContext,
+  claimant: Identity,
+  rights: IssuedCredential,
+  dataset: DatasetFacts,
+) {
   return {
-    id: home(claimant, "claims/training-use-permitted"),
-    name: "Training use permitted",
+    id: home(claimant, `claims/training-use-permitted/${dataset.file.sha256}`),
+    name: `Training use permitted: ${dataset.title}`,
     referenceCriteria: [rightsCriterion(ctx)],
     claimDate: ctx.date,
     claimedPerformance: [{ score: { code: "permitted" } }],

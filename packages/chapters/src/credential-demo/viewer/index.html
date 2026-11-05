@@ -179,7 +179,7 @@
       }
       ul.checks li {
         display: grid;
-        grid-template-columns: 44px 1fr;
+        grid-template-columns: 70px 1fr;
         gap: 8px;
         padding: 4px 0;
         border-bottom: 1px solid var(--border);
@@ -200,6 +200,11 @@
       .status.warning,
       .status.skipped {
         color: var(--warn);
+      }
+      .origin {
+        font-weight: 700;
+        font-size: 11px;
+        color: var(--accent);
       }
       .detail {
         color: var(--muted);
@@ -275,11 +280,15 @@
         </section>
 
         <section class="card">
+          <div id="model-claims-section" hidden>
+            <h2>The model's claims, against its parent's</h2>
+            <ul id="model-claims" class="checks"></ul>
+          </div>
           <h2>The buyer's checks</h2>
           <ul id="claim-checks" class="checks"></ul>
           <h2 style="margin-top: 16px">Files</h2>
           <div id="drop-zone" class="drop-zone">
-            Drop weights.bin, config.json or the dataset here. They are hashed in this browser; only
+            Drop the model's weights, its config.json, or the dataset here. They are hashed in this browser; only
             their digests are sent to the local viewer.
           </div>
           <ul id="file-checks" class="checks"></ul>

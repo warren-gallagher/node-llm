@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { type ChainReading, listModels, pickModel, readChain } from "./buyer";
-import { claimChecks, fileCheck } from "./checks";
+import { type ChainReading, listModels, pickModel, readChain, readingChecks } from "./buyer";
+import { fileCheck } from "./checks";
 import { AqClient } from "./client";
 import { loadDemoEnv } from "./env";
 import type { FileDigest } from "./hashing";
@@ -86,7 +86,8 @@ async function chain(runId: string) {
     modelPassport: model.passport.credentialId,
     verified: reading.platform.verified,
     graph: credentialGraph(reading.platform),
-    checks: [reading.credentialCheck, ...claimChecks(reading.claims)],
+    checks: readingChecks(reading),
+    claims: reading.inheritance?.claims ?? [],
   };
 }
 

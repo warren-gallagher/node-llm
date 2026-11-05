@@ -1,4 +1,11 @@
-import { allChecks, pickModel, printChecks, printPlatformTree, readChain } from "./buyer";
+import {
+  allChecks,
+  pickModel,
+  printChecks,
+  printClaims,
+  printPlatformTree,
+  readChain,
+} from "./buyer";
 import { AqClient } from "./client";
 import { loadDemoEnv } from "./env";
 import { loadManifest } from "./state";
@@ -12,7 +19,9 @@ import { loadManifest } from "./state";
  *    agree with each other;
  * 3. the buyer hashes the model files and the dataset, and compares them with the passports;
  * 4. the buyer reruns the evaluation on those files, and compares the loss with the claimed one;
- * 5. for a quantized model, the buyer reruns the quantization from the parent's weights.
+ * 5. for a derived model, the buyer classifies its claims against the parent's (inherited,
+ *    overriding or new), checks that no inherited claim rests on an assessment of the parent,
+ *    compares the weights with the parent's, and for a quantization reruns it.
  *
  * Usage: pnpm demo:verify [runId | derivationId]   (default: the latest run)
  */
@@ -28,6 +37,11 @@ async function main(): Promise<void> {
 
   console.log("\nPlatform verification, through the whole chain:");
   printPlatformTree(reading.platform, "  ");
+
+  if (reading.inheritance) {
+    console.log("\nThe model's claims, against its parent's passport:");
+    printClaims(reading.inheritance);
+  }
 
   console.log("\nThe buyer's checks:");
   const checks = allChecks(reading, model.files);

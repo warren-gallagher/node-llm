@@ -4,21 +4,34 @@ import { evaluateLoss } from "@node-llm/core";
 import { loadCheckpoint, makeLoaders } from "../ch05-training/shared";
 import {
   artifactChecks,
+  assessedProducts,
   type ChainClaims,
+  type ClassifiedClaim,
   claimChecks,
+  classifyClaims,
   credentialDigestCheck,
   type DemoCheck,
   decodeJwtPayload,
   evaluationRerunCheck,
+  inheritanceCheck,
   type Link,
   modelLinks,
   quantizationRerunChecks,
   readChainClaims,
+  weightComparisonCheck,
 } from "./checks";
 import type { AqClient, VerificationResult } from "./client";
 import { REPO_ROOT } from "./env";
+import { weightChangeProfile } from "./forensics";
 import { hashFile, sha256Hex } from "./hashing";
-import { isQuantized, loadQuantized, QUANTIZATION, quantizeWeights } from "./quantize";
+import {
+  dequantizeWeights,
+  isQuantized,
+  loadQuantized,
+  QUANTIZATION,
+  QUANTIZED_WEIGHTS,
+  quantizeWeights,
+} from "./quantize";
 import type { IssuedCredential, Manifest, RunRecord } from "./state";
 
 /**
@@ -44,6 +57,8 @@ export function checkpointName(run: { checkpoint: string }): string {
 /** A model the buyer can check: its passport, and the files the buyer holds for it. */
 export interface BuyerModel {
   id: string;
+  /** How the model was made: trained by a run, or derived from a run's model. */
+  kind: "run" | "quantization" | "fine-tuning";
   passport: IssuedCredential;
   files: BuyerFiles;
 }
@@ -58,6 +73,7 @@ export function pickModel(manifest: Manifest, id?: string): BuyerModel {
     const parent = pickRun(manifest, derivation.parentRunId);
     return {
       id: derivation.derivationId,
+      kind: derivation.kind,
       passport: derivation.passport,
       files: {
         checkpoint: checkpointName(derivation),
@@ -70,6 +86,7 @@ export function pickModel(manifest: Manifest, id?: string): BuyerModel {
   const run = pickRun(manifest, id);
   return {
     id: run.runId,
+    kind: "run",
     passport: run.passport,
     files: { checkpoint: checkpointName(run), weightsFile: "weights.bin", dataset: VERDICT_PATH },
   };
@@ -98,6 +115,18 @@ export interface ChainReading {
   platform: VerificationResult;
   claims: ChainClaims;
   credentialCheck: DemoCheck;
+  /** For a derived model: its passport's claims classified against the parent's. */
+  inheritance?: Inheritance;
+}
+
+/** A derived model's claims against its parent's, and what each cited DCC assessed. */
+export interface Inheritance {
+  // biome-ignore lint/suspicious/noExplicitAny: credentials are read loosely, like any JSON
+  modelPassport: any;
+  // biome-ignore lint/suspicious/noExplicitAny: credentials are read loosely, like any JSON
+  parentPassport: any;
+  claims: ClassifiedClaim[];
+  assessed: Record<string, string[]>;
 }
 
 /**
@@ -131,15 +160,38 @@ export async function readChain(client: AqClient, modelPassportUrl: string): Pro
     ? decodeJwtPayload(await client.fetchCredential(links.event.linkURL))
     : undefined;
 
+  const claims = readChainClaims(model, decodeJwtPayload(datasetJwt), evaluation, event);
   return {
     modelPassportUrl,
     platform,
-    claims: readChainClaims(model, decodeJwtPayload(datasetJwt), evaluation, event),
+    claims,
     credentialCheck: credentialDigestCheck([
       { link: datasetLink, jwt: datasetJwt },
       { link: links.evaluation, jwt: evaluationJwt },
     ]),
+    inheritance: claims.derivation
+      ? await readInheritance(client, platform, model, claims.derivation.parentId)
+      : undefined,
   };
+}
+
+/** Reads the parent's passport and every DCC the derived passport cites, and classifies its claims. */
+async function readInheritance(
+  client: AqClient,
+  platform: VerificationResult,
+  // biome-ignore lint/suspicious/noExplicitAny: credentials are read loosely, like any JSON
+  modelPassport: any,
+  parentId: string,
+): Promise<Inheritance> {
+  const parentLink = findPassportLink(platform, parentId);
+  if (!parentLink) throw new Error(`no passport for the parent model ${parentId} in the chain`);
+  const parentPassport = decodeJwtPayload(await client.fetchCredential(parentLink.linkURL));
+  const claims = classifyClaims(modelPassport, parentPassport);
+  const assessed: Record<string, string[]> = {};
+  for (const url of new Set(claims.flatMap((claim) => claim.evidence))) {
+    assessed[url] = assessedProducts(decodeJwtPayload(await client.fetchCredential(url)));
+  }
+  return { modelPassport, parentPassport, claims, assessed };
 }
 
 /** The link that reached the passport for this product, anywhere in the platform's tree. */
@@ -176,31 +228,66 @@ export function fileChecks(reading: ChainReading, files: BuyerFiles): DemoCheck[
 }
 
 /**
- * For a quantized model: rerun the quantization from the parent's weights and compare hashes.
- * Other derivations can't be rerun bit for bit, so they get no check here.
+ * For a derived model: compare its weights with the parent's, and for a quantization, rerun it
+ * from the parent's weights and compare hashes. Fine-tuning can't be rerun bit for bit, so the
+ * comparison is all a buyer can check for it.
  */
-function derivationChecks(claims: ChainClaims, files: BuyerFiles): DemoCheck[] {
+export function derivationChecks(claims: ChainClaims, files: BuyerFiles): DemoCheck[] {
   const derivation = claims.derivation;
-  if (!derivation?.processType.startsWith("Quantization")) return [];
-  if (!files.parentCheckpoint)
+  if (!derivation) return [];
+  if (!files.parentCheckpoint) {
     throw new Error("the parent's checkpoint is needed to check a derivation");
-  const dir = new URL(`checkpoints/${files.parentCheckpoint}/`, REPO_ROOT);
-  const parentBytes = readFileSync(new URL("weights.bin", dir));
-  const shapes = JSON.parse(readFileSync(new URL("config.json", dir), "utf8")).shapes;
-  const rerun = isDeepStrictEqual(derivation.hyperparameters, { ...QUANTIZATION })
-    ? sha256Hex(
-        quantizeWeights(
-          new Float32Array(parentBytes.buffer, parentBytes.byteOffset, parentBytes.byteLength / 4),
-          shapes,
-        ),
-      )
-    : undefined;
-  return quantizationRerunChecks(derivation, claims.modelId, sha256Hex(parentBytes), rerun);
+  }
+  const parentDir = new URL(`checkpoints/${files.parentCheckpoint}/`, REPO_ROOT);
+  const parentBytes = readFileSync(new URL("weights.bin", parentDir));
+  const parent = floats(parentBytes);
+  const shapes: number[][] = JSON.parse(
+    readFileSync(new URL("config.json", parentDir), "utf8"),
+  ).shapes;
+  const checks: DemoCheck[] = [];
+
+  if (derivation.processType.startsWith("Quantization")) {
+    const rerun = isDeepStrictEqual(derivation.hyperparameters, { ...QUANTIZATION })
+      ? sha256Hex(quantizeWeights(parent, shapes))
+      : undefined;
+    checks.push(
+      ...quantizationRerunChecks(derivation, claims.modelId, sha256Hex(parentBytes), rerun),
+    );
+  }
+  const comparison = weightComparisonCheck(
+    derivation,
+    weightChangeProfile(parent, derivedFloats(files, shapes), shapes),
+  );
+  if (comparison) checks.push(comparison);
+  return checks;
+}
+
+/** The derived model's weights as float32 values, dequantized if they are int8. */
+function derivedFloats(files: BuyerFiles, shapes: number[][]): Float32Array {
+  const dir = new URL(`checkpoints/${files.checkpoint}/`, REPO_ROOT);
+  const bytes = readFileSync(new URL(files.weightsFile, dir));
+  return files.weightsFile === QUANTIZED_WEIGHTS ? dequantizeWeights(bytes, shapes) : floats(bytes);
+}
+
+function floats(bytes: Buffer): Float32Array {
+  return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+}
+
+/** The checks that need only the credentials: they agree, and a derived model inherits fairly. */
+export function readingChecks(reading: ChainReading): DemoCheck[] {
+  const { inheritance, claims } = reading;
+  return [
+    reading.credentialCheck,
+    ...claimChecks(claims),
+    ...(inheritance && claims.derivation
+      ? [inheritanceCheck(inheritance.claims, inheritance.assessed, claims.derivation.parentId)]
+      : []),
+  ];
 }
 
 /** Every check, in report order. */
 export function allChecks(reading: ChainReading, files: BuyerFiles): DemoCheck[] {
-  return [reading.credentialCheck, ...claimChecks(reading.claims), ...fileChecks(reading, files)];
+  return [...readingChecks(reading), ...fileChecks(reading, files)];
 }
 
 /** The validation loss of the checkpoint on the dataset's validation split. */
@@ -252,6 +339,14 @@ export function printPlatformTree(
     console.log(`${indent}  error ${error.code}: ${error.message}`);
   for (const child of result.upstreamResults ?? []) {
     printPlatformTree(child, `${indent}  `, shown);
+  }
+}
+
+/** A derived model's claims: inherited from the parent, overriding one of its claims, or new. */
+export function printClaims(inheritance: Inheritance): void {
+  for (const claim of inheritance.claims) {
+    const parent = claim.parentClaim ? ` (parent's: ${claim.parentClaim})` : "";
+    console.log(`  ${claim.origin.padEnd(9)} ${claim.name}${parent}`);
   }
 }
 

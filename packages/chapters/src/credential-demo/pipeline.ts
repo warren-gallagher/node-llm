@@ -7,12 +7,12 @@ import { evaluateLoss, type GptModel } from "@node-llm/core";
 import { encode } from "gpt-tokenizer/encoding/r50k_base";
 import { loadVerdict, makeLoaders } from "../ch05-training/shared";
 import { EVALUATION_BATCH_SIZE } from "./buyer";
-import type { DatasetFacts, EvaluationFacts, TrainingFacts } from "./claims";
+import type { DatasetFacts, EvaluationFacts, ModelFacts, TrainingFacts } from "./claims";
 import type { VerificationResult } from "./client";
 import { REPO_ROOT } from "./env";
 import { digestMultibase, hashFile, sha256Hex } from "./hashing";
 import type { PartyKey } from "./parties";
-import type { Manifest } from "./state";
+import type { Manifest, RunRecord } from "./state";
 
 /** Steps shared by the demo's pipeline scripts (`demo:run`, `demo:quantize`). */
 
@@ -108,4 +108,27 @@ function packageDir(name: string): string {
     dir = parent;
   }
   return dir;
+}
+
+/** A run's model as its passport described it, rebuilt from its checkpoint. */
+export function parentModelFacts(run: RunRecord): ModelFacts {
+  const dir = new URL(`${run.checkpoint}/`, REPO_ROOT);
+  const weights = hashFile(new URL("weights.bin", dir), "application/octet-stream");
+  if (weights.sha256 !== run.weightsSha256) {
+    throw new Error(`${run.checkpoint}/weights.bin isn't the model run ${run.runId} trained`);
+  }
+  const saved = JSON.parse(readFileSync(new URL("config.json", dir), "utf8"));
+  return {
+    name: `Verdict GPT ${run.runId}`,
+    description: "The parent model.",
+    architecture: "GPT-2",
+    parameterCount: parameterCount(saved.shapes),
+    modelConfig: saved.config,
+    weights,
+    config: hashFile(new URL("config.json", dir), "application/json"),
+  };
+}
+
+function parameterCount(shapes: number[][]): number {
+  return shapes.reduce((sum, shape) => sum + shape.reduce((a, b) => a * b, 1), 0);
 }

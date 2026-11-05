@@ -42,8 +42,8 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M4a | Done 2026-11-04: whole-chain verification, link integrity, lineage and `validateUpstream` in `realtime`; checked against `demo:run` and the coffee demo |
 | M4b | Done 2026-11-04: `demo:verify` accepts the latest run, and `demo:tamper` catches each case with the expected check |
 | M5 | Done 2026-11-05: the did:web pages show claims, links and the verification tree; `demo:viewer` draws the credential graph and checks dropped files |
-| M6 | Done 2026-11-05: `demo:verify` accepts the quantized model by rerunning the quantization (uncommitted) |
-| M7 | Not started |
+| M6 | Done 2026-11-05: `demo:verify` accepts the quantized model by rerunning the quantization |
+| M7 | Written 2026-11-05 (uncommitted); dry runs pass |
 
 **Log** (newest last):
 
@@ -224,8 +224,18 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - Dry run against the local stack: all three credentials pass the platform's validation. The quantized model's validation loss is 6.373203, against the parent's 6.372789.
 
 - 2026-11-05: `demo:quantize` issued derivation `2026-11-05T16-25-18Z-int8` (weights sha256 `2116a219…7261`, validation loss 6.373203). All three credentials verify on the platform, and `demo:verify` accepts it: rerunning the quantization from the parent's weights gives the passport's hash.
+- 2026-11-05: M6 committed.
+- 2026-11-05: M7 written in `packages/chapters/src/credential-demo/` (uncommitted):
+    - `finetune-model.ts` (`demo:finetune [runId] [--dry-run]`): issues chapter 7's instruction data its own rights DCC (Book Auditor) and dataset passport (Book Publisher), reused while the file is unchanged (`fineTuningDataset` in the manifest). Then it fine-tunes the run's model on the book's training split for one epoch (AdamW, learning rate 5e-5, weight decay 0.1, seed 42; the examples in the book's prompt template, joined and cut into 64-token windows), has Model Auditor evaluate it on The Verdict's validation split, and issues the derivation DTE (inputs: the parent model and the instruction data), the evaluation DCC and the passport. The passport inherits The Verdict's training-rights claim, adds the instruction data's, and overrides the loss claim.
+    - The instruction data's licence is recorded as "Apache License 2.0, as modified in the LLMs-from-scratch repository's LICENSE.txt" (the modification excludes the book from "Source"; GitHub reports it as "Other"). `DatasetFacts` gains an optional `licence`, so rights DCCs and dataset passports state it.
+    - UNTP requires `massFraction` on every material. With two datasets, each gets its share of the two datasets' token counts.
+    - `forensics.ts`: `weightChangeProfile` counts, per tensor, whether values are unchanged, moved within half an int8 rounding step, or beyond it. On the real files: the fine-tune moved 29 of 31 tensors beyond rounding (largest relative change 0.21); the quantization moved all 31 within it (0.012). `weightComparisonCheck` expects no tensor beyond rounding for a quantization, and more than half for a fine-tune.
+    - Claim classification (`classifyClaims`): inherited (the parent cites the same evidence), overrides (the parent has a claim against the same criterion that isn't inherited), or new. `inheritanceCheck` fails an inherited claim whose cited DCC assessed the parent model. `demo:verify` prints the classification, and the viewer shows it beside the buyer's checks.
+    - `demo:tamper` picks its cases by model kind. For a derived model they are simulated in memory, labelled as such, and issue nothing: a hidden edit passed off as a quantization (caught by the rerun and the weight comparison, while the evaluation rerun moves only 9.5e-7), a fine-tune passed off as a quantization, and a passport that inherits the parent's evaluation (caught by the inheritance check).
+    - Dry runs of `demo:finetune` pass the platform's validation for all five credentials. The seeded fine-tune gave the same weights twice (sha256 `fe710845…033e`); its validation loss on The Verdict is 6.560, against the parent's 6.373.
+    - 17 new tests (70 in all).
 
-**Next:** the user reviews and commits M6. Then M7. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
+**Next:** the user runs `pnpm demo:finetune`, then `pnpm demo:verify` and `pnpm demo:tamper` on the derivation, and reviews and commits M7. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
 
 ## Environment
 
