@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { answerReadingChecks, isAnswerId, pickAnswer, readAnswer } from "./answer-check";
 import { type ChainReading, listModels, pickModel, readChain, readingChecks } from "./buyer";
 import { fileCheck } from "./checks";
 import { AqClient } from "./client";
@@ -68,17 +69,35 @@ function manifest(): Manifest {
   return loadManifest(env.apiUrl, env.tenantId);
 }
 
-/** The models in the manifest, runs and derivations, newest first. */
+/** The models in the manifest, runs and derivations, then the answers, newest first. */
 function runs(current: Manifest) {
-  return listModels(current).map((model) => ({
+  const answers = (current.rag?.answers ?? []).map((answer) => ({
+    runId: answer.answerId,
+    modelPassport: answer.event.credentialId,
+  }));
+  const models = listModels(current).map((model) => ({
     runId: model.id,
     modelPassport: model.modelPassport,
   }));
+  return [...answers.reverse(), ...models];
 }
 
-/** Verifies a model's passport through the platform, and lays out the result. */
+/** Verifies a model's passport, or an answer's record, through the platform, and lays it out. */
 async function chain(runId: string) {
-  const model = pickModel(manifest(), runId);
+  const current = manifest();
+  if (isAnswerId(current, runId)) {
+    const answer = pickAnswer(current, runId);
+    const reading = await readAnswer(client, answer.event.credentialId);
+    return {
+      runId,
+      modelPassport: answer.event.credentialId,
+      verified: reading.platform.verified,
+      graph: credentialGraph(reading.platform),
+      checks: answerReadingChecks(reading, current.authorities.bookPublisher?.did),
+      claims: [],
+    };
+  }
+  const model = pickModel(current, runId);
   const reading = await readChain(client, model.passport.credentialId);
   readings.set(runId, reading);
   return {
@@ -94,7 +113,8 @@ async function chain(runId: string) {
 /** Checks each dropped file, by its digest, against the run's credentials as last read. */
 function checkFiles(runId: string, files: FileDigest[]) {
   const reading = readings.get(runId);
-  if (!reading) throw new Error(`verify run ${runId} first`);
+  if (!reading)
+    throw new Error(`verify model ${runId} first; files are checked against a model's passports`);
   if (!Array.isArray(files)) throw new Error("expected a list of files");
   return files.map((file) => fileCheck(reading.claims, file));
 }

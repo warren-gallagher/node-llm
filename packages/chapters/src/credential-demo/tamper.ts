@@ -1,4 +1,17 @@
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import type { FeatureExtractionPipeline } from "@huggingface/transformers";
+import type { GptModel } from "@node-llm/core";
+import { type Passage, PLANTED } from "../ch07-instruction/rag-corpus";
+import { loadFineTuned } from "../ch07-instruction/shared";
+import {
+  type AnswerFiles,
+  type AnswerReading,
+  answerChecks,
+  answerFiles,
+  isAnswerId,
+  pickAnswer,
+  readAnswer,
+} from "./answer-check";
 import {
   allChecks,
   type BuyerFiles,
@@ -19,9 +32,10 @@ import {
 } from "./checks";
 import { AqClient } from "./client";
 import { loadDemoEnv, REPO_ROOT } from "./env";
-import { digestMultibase, niUri, sha256Hex } from "./hashing";
+import { digestMultibase, hashFile, niUri, sha256Hex } from "./hashing";
 import { QUANTIZATION } from "./quantize";
-import { loadManifest } from "./state";
+import { embedPassages, loadEmbedder, passageSha256, readCollection } from "./rag";
+import { loadManifest, type Manifest } from "./state";
 
 /**
  * Credential demo, failure cases, and which of the buyer's checks catches each.
@@ -35,11 +49,15 @@ import { loadManifest } from "./state";
  * the credentials is changed in memory, and nothing is issued. The platform column shows the
  * real credentials' verification.
  *
- * Usage: pnpm demo:tamper [runId | derivationId]   (default: the latest run)
+ * For an answer, the cases are an index the deployer altered, a changed passage the record names
+ * (simulated), and an answer edited after it was recorded.
+ *
+ * Usage: pnpm demo:tamper [runId | derivationId | answerId]   (default: the latest run)
  */
 
 const TAMPER_DIR = "verdict-demo/tamper";
 const GROUPS: CheckGroup[] = ["credentials", "claims", "artifact", "evaluation", "derivation"];
+const ANSWER_GROUPS: CheckGroup[] = ["answer", "retrieval", "generation"];
 
 interface TamperCase {
   name: string;
@@ -152,7 +170,12 @@ const CASES: Record<BuyerModel["kind"], TamperCase[]> = {
 async function main(): Promise<void> {
   const env = loadDemoEnv();
   const client = new AqClient(env);
-  const model = pickModel(loadManifest(env.apiUrl, env.tenantId), process.argv[2]);
+  const manifest = loadManifest(env.apiUrl, env.tenantId);
+  if (isAnswerId(manifest, process.argv[2])) {
+    await tamperAnswer(client, manifest, process.argv[2] as string);
+    return;
+  }
+  const model = pickModel(manifest, process.argv[2]);
 
   console.log(`Model ${model.id} (${model.kind})`);
   const reading = await readChain(client, model.passport.credentialId);
@@ -188,6 +211,159 @@ async function main(): Promise<void> {
   console.log("");
   printTable(["Case", "Platform", ...groups.map(capitalize), "Caught by", "As expected"], rows);
   if (!allAsExpected) process.exitCode = 1;
+}
+
+// ============================================================================
+// Answers
+// ============================================================================
+
+interface AnswerCase {
+  name: string;
+  expectedFailures: CheckGroup[];
+  note: string;
+  prepare(
+    files: AnswerFiles,
+    reading: AnswerReading,
+    embedder: FeatureExtractionPipeline,
+  ): Promise<{ files: AnswerFiles; reading?: AnswerReading }>;
+}
+
+const ANSWER_CASES: AnswerCase[] = [
+  {
+    name: "Untampered",
+    expectedFailures: [],
+    note: "the answer, index and passages as recorded",
+    async prepare(files) {
+      return { files };
+    },
+  },
+  {
+    name: "An unlisted passage added to the index",
+    expectedFailures: ["retrieval"],
+    note: "the deployer's index holds chapter 7's planted passage, which no collection passport lists",
+    async prepare(files, _reading, embedder) {
+      const saved = JSON.parse(readFileSync(files.index, "utf8"));
+      saved.entries.push(...(await embedPassages(embedder, [PLANTED])));
+      const index = writeTamperFile("index-planted.json", JSON.stringify(saved));
+      return { files: { ...files, index, passages: [...files.passages, PLANTED] } };
+    },
+  },
+  {
+    name: "A changed passage, named in the record (simulated)",
+    // Generating again usually still matches: a small edit to the passage needn't change the
+    // greedy answer. The passage's hash against the collection passport is what catches it.
+    expectedFailures: ["retrieval"],
+    note: "the deployer edited the passage it retrieved, indexed the edit, and recorded the edit's hash",
+    async prepare(files, reading, embedder) {
+      const recorded = files.passages.find(
+        (p) => niUri(passageSha256(p)) === reading.record.passageIds[0],
+      );
+      if (!recorded) throw new Error("the recorded passage isn't one the buyer holds");
+      const edited: Passage = { ...recorded, text: `${recorded.text} Some say otherwise.` };
+      const saved = JSON.parse(readFileSync(files.index, "utf8"));
+      const [entry] = await embedPassages(embedder, [edited]);
+      saved.entries = saved.entries.map((e: { passageId: string }) =>
+        e.passageId === recorded.id ? entry : e,
+      );
+      const index = writeTamperFile("index-changed.json", JSON.stringify(saved));
+      return {
+        files: {
+          ...files,
+          index,
+          passages: files.passages.map((p) => (p.id === recorded.id ? edited : p)),
+        },
+        reading: {
+          ...reading,
+          record: {
+            ...reading.record,
+            passageIds: [niUri(passageSha256(edited))],
+            indexId: niUri(hashFile(index, "application/json").sha256),
+          },
+        },
+      };
+    },
+  },
+  {
+    name: "An answer edited after it was recorded",
+    expectedFailures: ["answer"],
+    note: "the buyer was given a different answer from the one the record names",
+    async prepare(files) {
+      return { files: { ...files, answer: `${files.answer} (edited)` } };
+    },
+  },
+];
+
+async function tamperAnswer(client: AqClient, manifest: Manifest, answerId: string): Promise<void> {
+  const entry = pickAnswer(manifest, answerId);
+  console.log(`Answer ${entry.answerId}: ${entry.question}`);
+  const reading = await readAnswer(client, entry.event.credentialId);
+  const platform = reading.platform.verified ? "VERIFIED" : "NOT VERIFIED";
+  const files = answerFiles(entry, manifest, readCollection());
+  const models = await answerModels();
+
+  const rows: string[][] = [];
+  let allAsExpected = true;
+  for (const tamperCase of ANSWER_CASES) {
+    console.log(`\n${tamperCase.name}: ${tamperCase.note}`);
+    const prepared = await tamperCase.prepare(files, reading, models.embedder);
+    const checks = await answerChecks(
+      prepared.reading ?? reading,
+      prepared.files,
+      models,
+      manifest.authorities.bookPublisher?.did,
+    );
+    for (const check of checks.filter((c) => !c.passed)) {
+      console.log(`  FAIL ${check.group}: ${check.name}`);
+      console.log(`       ${check.detail}`);
+    }
+    const failed = ANSWER_GROUPS.filter((group) =>
+      checks.some((check) => check.group === group && !check.passed),
+    );
+    const asExpected =
+      failed.length === tamperCase.expectedFailures.length &&
+      failed.every((group) => tamperCase.expectedFailures.includes(group));
+    allAsExpected &&= asExpected;
+    rows.push([
+      tamperCase.name,
+      platform,
+      ...ANSWER_GROUPS.map((group) => (failed.includes(group) ? "FAIL" : "pass")),
+      failed.length > 0 ? failed.join(", ") : "nothing (accepted)",
+      asExpected ? "yes" : "NO",
+    ]);
+  }
+  models.generator.dispose();
+  await models.embedder.dispose();
+
+  console.log("");
+  printTable(
+    ["Case", "Platform", ...ANSWER_GROUPS.map(capitalize), "Caught by", "As expected"],
+    rows,
+  );
+  if (!allAsExpected) process.exitCode = 1;
+}
+
+/** The embedding model and the answering model, with the answering model's hash. */
+async function answerModels(): Promise<{
+  embedder: FeatureExtractionPipeline;
+  generator: GptModel;
+  generatorSha256: string;
+}> {
+  const generator = loadFineTuned("124m");
+  if (!generator) throw new Error("no instruction-tuned GPT-2 124M: run pnpm ch07:5");
+  const generatorSha256 = hashFile(
+    new URL("checkpoints/gpt2-124m-instruct/weights.bin", REPO_ROOT),
+    "application/octet-stream",
+  ).sha256;
+  return { embedder: await loadEmbedder(), generator, generatorSha256 };
+}
+
+/** Writes a tampered file under the tamper directory, and returns where. */
+function writeTamperFile(name: string, contents: string): URL {
+  const dir = checkpointUrl(TAMPER_DIR);
+  mkdirSync(dir, { recursive: true });
+  const path = new URL(name, dir);
+  writeFileSync(path, contents);
+  return path;
 }
 
 /** A copy of the model's checkpoint under the tamper directory, by name. */

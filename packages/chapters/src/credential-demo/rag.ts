@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { env, type FeatureExtractionPipeline, pipeline } from "@huggingface/transformers";
 import { CORPUS, type Passage } from "../ch07-instruction/rag-corpus";
 import type { ClaimedFile } from "./checks";
@@ -48,6 +48,14 @@ export function passageFile(passage: Passage): ClaimedFile & { mediaType: string
     byteLength: Buffer.byteLength(passage.text, "utf8"),
     digestMultibase: digestMultibase(passageSha256(passage)),
   };
+}
+
+/** The collection file's passages, as a holder of the file reads them. */
+export function readCollection(dir: URL = RAG_DIR): Passage[] {
+  const saved: { id: string; text: string }[] = JSON.parse(
+    readFileSync(new URL("collection.json", dir), "utf8"),
+  );
+  return saved.map(({ id, text }) => ({ id, source: "collection", text }));
 }
 
 /** Writes the collection as one file, `[{ id, text }]` in order, and hashes it. */

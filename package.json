@@ -26,6 +26,8 @@
     "demo:finetune": "pnpm --filter @node-llm/chapters demo:finetune",
     "demo:quantize": "pnpm --filter @node-llm/chapters demo:quantize",
     "demo:rag-setup": "pnpm --filter @node-llm/chapters demo:rag-setup",
+    "demo:ask": "pnpm --filter @node-llm/chapters demo:ask",
+    "demo:verify-answer": "pnpm --filter @node-llm/chapters demo:verify-answer",
     "demo:viewer": "pnpm --filter @node-llm/chapters demo:viewer",
     "playground": "pnpm --filter @node-llm/playground dev"
   },

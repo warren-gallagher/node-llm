@@ -11,7 +11,15 @@ import { digestMultibase, type FileDigest, niUri } from "./hashing";
  * evaluation.
  */
 
-export type CheckGroup = "credentials" | "claims" | "artifact" | "evaluation" | "derivation";
+export type CheckGroup =
+  | "credentials"
+  | "claims"
+  | "artifact"
+  | "evaluation"
+  | "derivation"
+  | "answer"
+  | "retrieval"
+  | "generation";
 
 export interface DemoCheck {
   group: CheckGroup;

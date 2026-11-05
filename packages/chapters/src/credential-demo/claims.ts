@@ -773,6 +773,68 @@ export function indexDpp(
   };
 }
 
+/**
+ * Model Deployment Inc.'s record of one answer: the question, the passages retrieved and the
+ * answer, each by the hash of its text, with the model and index that produced it. One DTE per
+ * answer suits a demo; a real system would record answers in bulk (see the plan).
+ */
+export function answerDte(
+  ctx: DemoContext,
+  record: {
+    answerId: string;
+    eventDate: string;
+    question: FileDigest & { text: string };
+    answer: FileDigest & { text: string };
+    passages: (FileDigest & { score: number })[];
+  },
+  generator: { name: string; weights: FileDigest },
+  index: { name: string; file: FileDigest },
+  refs: { generatorPassport: IssuedCredential; indexPassport: IssuedCredential },
+): SignRequest {
+  const deployer = ctx.parties.modelDeployer;
+  const retrieved = record.passages
+    .map((passage) => `${passage.name} (cosine similarity ${passage.score.toFixed(3)})`)
+    .join(", ");
+  return {
+    name: `Answer: ${record.question.text}`,
+    credentialSubject: [
+      {
+        id: home(deployer, `events/answers/${record.answerId}`),
+        name: `Answer to "${record.question.text}"`,
+        description: `Retrieved ${retrieved} from ${index.name}, then generated the answer with ${generator.name}.`,
+        eventDate: record.eventDate,
+        activityType: COMMISSIONING,
+        inputProduct: [
+          answerInput(`Question: ${record.question.text}`, record.question),
+          ...record.passages.map((passage) => answerInput(`Passage ${passage.name}`, passage)),
+          answerInput(index.name, index.file),
+          answerInput(generator.name, generator.weights),
+        ],
+        outputProduct: [
+          {
+            product: productRef(`Answer: ${record.answer.text}`, record.answer),
+            quantity: { value: record.answer.byteLength, unit: "AD" },
+            disposition: "new",
+          },
+        ],
+        madeAtFacility: facility(ctx, "modelDeployer"),
+        relatedDocument: [
+          link(refs.generatorPassport, `Model passport: ${generator.name}`),
+          link(refs.indexPassport, `Index passport: ${index.name}`),
+        ],
+      },
+    ],
+  };
+}
+
+function answerInput(name: string, file: FileDigest) {
+  return {
+    product: productRef(name, file),
+    quantity: { value: file.byteLength, unit: "AD" },
+    disposition: "active",
+  };
+}
+
 // ============================================================================
 // Shared pieces
 // ============================================================================

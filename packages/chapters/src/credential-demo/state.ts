@@ -87,6 +87,17 @@ export interface RagRecord {
   collection?: HashedCredential;
   /** Model Deployment Inc.'s index of the admitted passages. */
   index?: HashedCredential & { indexing: IssuedCredential; file: string };
+  /** Answers, each recorded in its own DTE (phase 3, for the demo only). */
+  answers?: AnswerRecordEntry[];
+}
+
+/** One answer, its texts, and the DTE that records it. */
+export interface AnswerRecordEntry {
+  answerId: string;
+  question: string;
+  answer: string;
+  passages: { id: string; sha256: string; score: number }[];
+  event: IssuedCredential;
 }
 
 export interface Manifest {

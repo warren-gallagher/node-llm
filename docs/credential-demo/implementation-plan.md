@@ -44,8 +44,8 @@ Kept current as work happens, so a new session can resume from here. Read this s
 | M5 | Done 2026-11-05: the did:web pages show claims, links and the verification tree; `demo:viewer` draws the credential graph and checks dropped files |
 | M6 | Done 2026-11-05: `demo:verify` accepts the quantized model by rerunning the quantization |
 | M7 | Done 2026-11-05: the fine-tuned model is accepted, its claims classified, and both simulated lies caught |
-| M8 | Written 2026-11-05 (uncommitted); dry run passes |
-| M9 | Not started |
+| M8 | Done 2026-11-05: the retrieval system's credentials published; the planted passage kept out |
+| M9 | Done 2026-11-05: answers verified back to their sources; each tamper case caught by the expected check (uncommitted) |
 
 **Log** (newest last):
 
@@ -248,8 +248,18 @@ Kept current as work happens, so a new session can resume from here. Read this s
     - 11 new tests (81 in all).
 - 2026-11-05: The first dry run failed: UNTP 0.7.0 requires `producedAtFacility` and `countryOfProduction` on every passport, including an imported model's. Import passports now name the producer and use the publishing repository as the facility: GPT-2 is OpenAI's, in the United States; the embedding model's card doesn't say where it was produced, so its country is `ZZ` ("Unknown Region" in Unicode's locale data), which UNTP's schema accepts. A UNTP gap for the Claude Doc, like the mass fraction for data: a downloaded model may have no known place of production.
 - 2026-11-05: The dry run passes: all seven credentials validate; admission control admits the 12 listed passages and rejects the planted one; the index (12 vectors of 384 dimensions, sha256 `d20ea752…e72c`) rebuilds with a largest difference of 0.
+- 2026-11-05: M8 run by the user and committed: the seven credentials are published and saved in the manifest.
+- 2026-11-05: M9 written in `packages/chapters/src/credential-demo/` (uncommitted):
+    - `ask.ts` (`demo:ask [--dry-run]`): Model Deployment Inc. answers chapter 7's six retrieval questions. It checks the answering model and the index by hash against their passports, retrieves the closest passage (cosine similarity), generates greedily, and issues one DTE per answer (`answerDte`): inputs are the question, the passage and the answer's texts by hash, the index and the model; it links the model's and the index's passports.
+    - `answers.ts` and `answer-check.ts`: the buyer's checks of one answer. **Answer:** the question and answer it holds are the ones recorded. **Retrieval:** the collection passport is Book Publisher's; every passage the answer rests on is listed in it; the buyer's index is the one recorded, holds only listed passages, and rebuilds within 1e-5; retrieving again returns the recorded passage. **Generation:** the answering model is the one recorded, and generating again gives the answer the record names, by hash.
+    - `verify-answer.ts` (`demo:verify-answer [answerId]`): the platform's verification through the whole chain, then those checks. It says the checks show where an answer came from, not that it is right.
+    - `demo:tamper <answerId>`: an unlisted passage added to the deployer's index (caught by retrieval), a changed passage named in the record (simulated; expected to be caught by retrieval and generation), and an answer edited after it was recorded (caught by the answer check).
+    - The viewer lists answers and draws an answer's whole chain.
+    - The dry run of `demo:ask` passes: each question retrieves the right passage (similarity 0.71 to 0.79), and every record validates. Two answers are wrong although the passage was right ("The periodic symbol for chlorine is C"; "A sonnet is a poem of 12 lines"): the record shows where an answer came from, not that it is correct.
+    - 6 new tests (87 in all).
+- 2026-11-05: The user ran `demo:ask` (six answer DTEs, all verify through the whole chain) and `demo:verify-answer` on the sixth answer: ACCEPTED, with the index rebuilt exactly and the passage and answer regenerated exactly. `demo:tamper` caught the unlisted passage and the edited answer as expected, but the changed passage only by retrieval: the edited passage produced the same greedy answer, so regenerating it matched the record. Expectation corrected to retrieval only: rerunning generation is a weak check, since many edits to a passage don't change the answer; the passage's hash against the collection passport is what catches it. The rebuild check's detail now says "in the index but not the rebuild" instead of "missing".
 
-**Next:** the user runs `pnpm demo:rag-setup`, then reviews and commits M8. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
+**Next:** the user reviews and commits M9. Phase 3 is then complete. Still open with the user: the extension vocabulary namespace (`https://affinitiquest.io/vocab/untp/ai-model/0.1.0#`), the UNTP schema licence (see [Follow-ups](#follow-ups)).
 
 ## Environment
 

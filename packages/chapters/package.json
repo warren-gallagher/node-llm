@@ -46,6 +46,8 @@
     "demo:finetune": "tsx src/credential-demo/finetune-model.ts",
     "demo:quantize": "tsx src/credential-demo/quantize-model.ts",
     "demo:rag-setup": "tsx src/credential-demo/rag-setup.ts",
+    "demo:ask": "tsx src/credential-demo/ask.ts",
+    "demo:verify-answer": "tsx src/credential-demo/verify-answer.ts",
     "demo:viewer": "tsx src/credential-demo/viewer.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
